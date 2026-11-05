@@ -17,16 +17,24 @@ jobs:
     steps:
       - name: Checkout Source Code
         uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Ensure Git LFS Objects are Downloaded
+        run: |
+          git lfs pull
 
       - name: Install System Dependencies (FFmpeg & FFprobe)
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg
 
-      - name: Verify FFmpeg Version
+      - name: Verify FFmpeg Version & Validate Speech Audio Fixture with FFprobe
         run: |
           ffmpeg -version
           ffprobe -version
+          ls -lh backend/tests/fixtures/spoken_sample.wav
+          ffprobe -v error -show_entries stream=codec_name,channels,sample_rate,duration -of default=noprint_wrappers=1 backend/tests/fixtures/spoken_sample.wav
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5

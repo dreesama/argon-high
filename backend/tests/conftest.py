@@ -54,6 +54,18 @@ def real_spoken_sample_path(tmp_path_factory) -> Path:
     if not wav_file.exists():
         raise FileNotFoundError(f"Required speech fixture not found: {wav_file}")
 
+    # Verify that Git LFS checked out the genuine audio binary rather than an un-pulled text pointer
+    if wav_file.stat().st_size < 1000 and wav_file.read_bytes().startswith(b"version https://git-lfs"):
+        try:
+            subprocess.run(["git", "lfs", "pull"], check=True, capture_output=True)
+        except Exception:
+            pass
+        if wav_file.stat().st_size < 1000 and wav_file.read_bytes().startswith(b"version https://git-lfs"):
+            raise RuntimeError(
+                f"backend/tests/fixtures/spoken_sample.wav is a Git LFS pointer ({wav_file.stat().st_size} bytes). "
+                "The actual audio binary object was not checked out. Run 'git lfs pull' or configure 'lfs: true' in actions/checkout."
+            )
+
     ffmpeg_bin = settings.get_ffmpeg_binary()
     cmd = [
         ffmpeg_bin,
