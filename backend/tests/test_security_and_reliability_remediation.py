@@ -300,3 +300,162 @@ def test_remediation_supabase_storage_tenant_isolation_in_sql_migrations():
         assert "raw-sources" in sql, f"Migration {name} missing raw-sources bucket definition"
         assert "rendered-clips" in sql, f"Migration {name} missing rendered-clips bucket definition"
         assert "current_user_workspaces" in sql or "workspace_members" in sql, f"Migration {name} missing workspace membership check on storage"
+
+@pytest.mark.asyncio
+async def test_remediation_user_session_token_expiration_rejected(async_client: AsyncClient):
+    """
+    Requirement 2: Proves expired user sessions are rejected with 401 Unauthorized.
+    """
+    from datetime import datetime, timezone, timedelta
+    from app.db.database import db_manager
+
+    # Insert a temporary user with an expired token
+    expired_time = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+    conn = db_manager.get_connection()
+    conn.execute("""
+    INSERT OR REPLACE INTO users (id, email, name, api_token, system_role, token_expires_at_iso, created_at_iso)
+    VALUES ('usr-test-expired', 'expired@argonhigh.internal', 'Expired User', 'token_session_expired_12345', 'operator', ?, ?);
+    """, (expired_time, expired_time))
+    conn.execute("""
+    INSERT OR REPLACE INTO workspace_members (workspace_id, user_id, role, joined_at_iso)
+    VALUES ('ws-argon-core', 'usr-test-expired', 'operator', ?);
+    """, (expired_time,))
+    conn.commit()
+    conn.close()
+
+    resp = await async_client.get(
+        "/api/v1/campaigns/list",
+        headers={"Authorization": "Bearer token_session_expired_12345"},
+    )
+    assert resp.status_code == 401
+    assert "token has expired" in resp.json()["detail"].lower()
+
+@pytest.mark.asyncio
+async def test_remediation_unregistered_filesystem_media_glob_strictly_rejected(async_client: AsyncClient):
+    """
+    Requirement 3: Proves that files on the filesystem not registered in the authoritative DB/registry
+    cannot be accessed or streamed, preventing filesystem globbing vulnerabilities.
+    """
+    fake_asset_id = "src_unregistered_orphan_999"
+    orphan_file = settings.UPLOAD_DIR / f"{fake_asset_id}_secret_leak.mp4"
+    orphan_file.write_bytes(b"dummy fake media header data")
+
+    try:
+        # 1. Attempt inspection
+        insp_resp = await async_client.get(f"/api/v1/media/{fake_asset_id}/inspect")
+        assert insp_resp.status_code == 404
+        assert "not found in authoritative records" in insp_resp.json()["detail"].lower()
+
+        # 2. Attempt stream
+        stream_resp = await async_client.get(f"/api/v1/media/{fake_asset_id}/stream")
+        assert stream_resp.status_code == 404
+        assert "not found in authoritative records" in stream_resp.json()["detail"].lower()
+
+        # 3. Attempt trigger render job
+        render_resp = await async_client.post(
+            "/api/v1/render/jobs",
+            json={
+                "source_asset_id": fake_asset_id,
+                "start_sec": 0.0,
+                "end_sec": 5.0,
+            },
+        )
+        assert render_resp.status_code == 404
+        assert "not found in authoritative records" in render_resp.json()["detail"].lower()
+    finally:
+        orphan_file.unlink(missing_ok=True)
+
+def test_remediation_production_startup_denies_missing_or_insecure_secrets():
+    """
+    Requirement 2: Proves lifespan startup raises RuntimeError when ENVIRONMENT=production
+    and SECRET_KEY or ARGON_API_KEY is missing or insecure.
+    """
+    import asyncio
+    from app.main import lifespan
+    from fastapi import FastAPI
+    from unittest.mock import patch
+
+    test_app = FastAPI()
+
+    # 1. Insecure default secret in production raises RuntimeError
+    with patch("app.main.settings.ENVIRONMENT", "production"), \
+         patch("app.main.settings.SECRET_KEY", "argon-high-dev-secret-key-insecure-local-only"), \
+         patch("app.main.settings.DEFAULT_API_KEY", "prod_valid_token_32chars_long_12345678"):
+        with pytest.raises(RuntimeError, match="FATAL: Insecure or missing SECRET_KEY in production"):
+            async def run_cm():
+                async with lifespan(test_app):
+                    pass
+            asyncio.run(run_cm())
+
+    # 2. Default dev API key in production raises RuntimeError
+    with patch("app.main.settings.ENVIRONMENT", "production"), \
+         patch("app.main.settings.SECRET_KEY", "production_strong_secret_key_exceeds_32_chars_now"), \
+         patch("app.main.settings.DEFAULT_API_KEY", "argon_dev_token_syndicate_2026"):
+        with pytest.raises(RuntimeError, match="FATAL: Insecure or default ARGON_API_KEY in production"):
+            async def run_cm2():
+                async with lifespan(test_app):
+                    pass
+            asyncio.run(run_cm2())
+
+def test_remediation_financial_integer_minor_units_persistence():
+    """
+    Requirement 5: Proves financial ledger records store exact integer minor units (cents)
+    in SQLite performance_snapshots and payouts tables without floating-point precision loss.
+    """
+    from decimal import Decimal
+    from app.db.database import db_manager
+    from app.services.performance_service import performance_service
+    from app.schemas.performance import PerformanceSnapshotCreateRequest, PayoutCreateRequest
+
+    snap = performance_service.record_snapshot(
+        req=PerformanceSnapshotCreateRequest(
+            publication_id="pub-exact-cents-test",
+            clip_id="clip-cents-01",
+            campaign_id="cmp-meridian-fx",
+            views_count=35420,
+            verified_views_count=35420,
+            cpm_usd=4.75,
+            payout_cap_usd=1000.0,
+            platform_fees_usd=8.41,
+            production_cost_usd=12.19,
+            reconciled=True,
+            actually_received_usd=168.25,
+            payment_voucher_code="VCH-EXACT-CENTS-999",
+        ),
+        workspace_id="ws-argon-core",
+    )
+
+    # Verify database integer minor units column
+    conn = db_manager.get_connection()
+    row = conn.execute("SELECT * FROM performance_snapshots WHERE id = ?;", (snap.id,)).fetchone()
+    conn.close()
+
+    assert row is not None
+    # 35.42 * 4.75 = 168.245 -> 168.25 USD -> 16825 cents
+    assert row["confirmed_payable_cents"] == 16825
+    assert row["actually_received_cents"] == 16825
+    assert row["platform_fees_cents"] == 841
+    assert row["production_cost_cents"] == 1219
+    # Net profit: 168.25 - 8.41 - 12.19 = 147.65 -> 14765 cents
+    assert row["net_profit_cents"] == 14765
+
+    # Verify Payouts integer minor units
+    payout = performance_service.record_payout(
+        req=PayoutCreateRequest(
+            campaign_id="cmp-meridian-fx",
+            amount_usd=168.25,
+            effective_cpm_usd=4.75,
+            verified_views_counted=35420,
+            reference_code="PAY-EXACT-CENTS-001",
+            verification_state="verified-paid",
+        ),
+        workspace_id="ws-argon-core",
+    )
+
+    conn2 = db_manager.get_connection()
+    p_row = conn2.execute("SELECT * FROM payouts WHERE id = ?;", (payout.id,)).fetchone()
+    conn2.close()
+
+    assert p_row is not None
+    assert p_row["amount_cents"] == 16825
+

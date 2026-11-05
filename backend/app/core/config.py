@@ -12,13 +12,13 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     
     # Environment & Host
-    ENVIRONMENT: str = "development"
+    ENVIRONMENT: str = os.getenv("ENVIRONMENT", "development")
     HOST: str = "127.0.0.1"
     PORT: int = 8000
     
-    # Security & Auth (Always configured via environment / .env)
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "argon-high-production-secret-key-remediation-v1")
-    DEFAULT_API_KEY: str = os.getenv("ARGON_API_KEY", "argon_dev_token_syndicate_2026")
+    # Security & Auth (Always configured via environment / .env; zero production defaults)
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "argon-high-dev-secret-key-insecure-local-only" if os.getenv("ENVIRONMENT") != "production" else "")
+    DEFAULT_API_KEY: str = os.getenv("ARGON_API_KEY", "argon_dev_token_syndicate_2026" if os.getenv("ENVIRONMENT") != "production" else "")
     DEFAULT_WORKSPACE_ID: str = os.getenv("DEFAULT_WORKSPACE_ID", "ws-argon-core")
     
     # CORS

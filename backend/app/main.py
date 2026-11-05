@@ -9,6 +9,14 @@ from .api.v1.router import api_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Production security enforcement: Deny startup when required secrets are missing or default
+    if settings.ENVIRONMENT == "production":
+        insecure_keys = ["", "argon-high-dev-secret-key-insecure-local-only", "argon-high-production-secret-key-remediation-v1"]
+        if not settings.SECRET_KEY or settings.SECRET_KEY in insecure_keys or len(settings.SECRET_KEY) < 32:
+            raise RuntimeError("FATAL: Insecure or missing SECRET_KEY in production. A strong >=32-char SECRET_KEY environment variable is strictly required.")
+        if not settings.DEFAULT_API_KEY or "argon_dev_token" in settings.DEFAULT_API_KEY:
+            raise RuntimeError("FATAL: Insecure or default ARGON_API_KEY in production. A dedicated non-default API key is strictly required.")
+
     logger.info(f"{settings.PROJECT_NAME} starting up on environment: {settings.ENVIRONMENT}")
     logger.info(f"Storage Upload Dir: {settings.UPLOAD_DIR}")
     logger.info(f"Storage Render Dir: {settings.RENDER_DIR}")

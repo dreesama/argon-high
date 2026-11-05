@@ -120,19 +120,15 @@ async def create_render_job(
         conn = db_manager.get_connection()
         row = conn.execute("SELECT workspace_id, file_path FROM source_assets WHERE id = ?;", (source_id,)).fetchone()
         conn.close()
-        if row and Path(row["file_path"]).exists():
-            owner_ws = row["workspace_id"]
-            input_path = Path(row["file_path"])
-        else:
-            matches = list(settings.UPLOAD_DIR.glob(f"{source_id}_*"))
-            if not matches:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Source asset '{source_id}' not found.",
-                )
-            input_path = matches[0]
+        if not row or not Path(row["file_path"]).exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Source asset '{source_id}' not found in authoritative records.",
+            )
+        owner_ws = row["workspace_id"]
+        input_path = Path(row["file_path"])
 
-    if owner_ws and owner_ws not in current_user.authorized_workspaces:
+    if not owner_ws or owner_ws not in current_user.authorized_workspaces:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Forbidden: Access denied to source asset in workspace '{owner_ws}'.",
@@ -210,16 +206,27 @@ async def calculate_smart_framing(
     Computes smooth horizontal crop coordinates, safe visual action zones, and tracking metadata.
     """
     source_id = req.source_asset_id
+    owner_ws = None
     if source_id in SOURCE_REGISTRY:
+        owner_ws = SOURCE_REGISTRY[source_id]["response"].workspace_id
         input_path = SOURCE_REGISTRY[source_id]["file_path"]
     else:
-        matches = list(settings.UPLOAD_DIR.glob(f"{source_id}_*"))
-        if not matches:
+        conn = db_manager.get_connection()
+        row = conn.execute("SELECT workspace_id, file_path FROM source_assets WHERE id = ?;", (source_id,)).fetchone()
+        conn.close()
+        if not row or not Path(row["file_path"]).exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Source asset '{source_id}' not found.",
+                detail=f"Source asset '{source_id}' not found in authoritative records.",
             )
-        input_path = matches[0]
+        owner_ws = row["workspace_id"]
+        input_path = Path(row["file_path"])
+
+    if not owner_ws or owner_ws not in current_user.authorized_workspaces:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Forbidden: Access denied to source asset in workspace '{owner_ws}'.",
+        )
 
     insp = ffmpeg_service.inspect_media(input_path)
     w = insp.video_stream.width if insp.video_stream else 1920

@@ -86,28 +86,38 @@ jobs:
 
       - name: Run Bandit Security Analysis on Backend
         run: |
-          bandit -r backend/app -ll -ii || true
+          bandit -r backend/app -ll -ii
 
-      - name: Ensure No Hard-coded Secrets in Versioned Configs
+      - name: Comprehensive Secret & Credential Scanning (Frontend and Backend)
         run: |
           python -c "
           import re, sys
           from pathlib import Path
           
-          patterns = [
-              r'AIza[0-9A-Za-z-_]{35}',
-              r'sk-[a-zA-Z0-9]{32,}',
-              r'postgres://.*:.*@',
+          secret_patterns = [
+              (r'AIza[0-9A-Za-z-_]{35}', 'Google API Key'),
+              (r'sk-[a-zA-Z0-9]{32,}', 'OpenAI API Key'),
+              (r'postgres://[^:]+:[^@]+@', 'PostgreSQL Connection URI with Password'),
+              (r'ghp_[0-9a-zA-Z]{36}', 'GitHub Personal Access Token'),
+              (r'xox[baprs]-[0-9a-zA-Z]{10,48}', 'Slack Token'),
           ]
+          
+          scan_paths = list(Path('src').glob('**/*')) + list(Path('backend/app').glob('**/*')) + list(Path('backend/migrations').glob('**/*'))
           found = False
-          for p in Path('.').glob('**/*.py'):
-              if 'venv' in str(p) or '.pytest_cache' in str(p): continue
-              text = p.read_text(encoding='utf-8', errors='ignore')
-              for pat in patterns:
-                  if re.search(pat, text):
-                      print(f'Potential secret pattern {pat} found in {p}')
-                      found = True
+          for p in scan_paths:
+              if p.is_dir() or 'node_modules' in str(p) or '__pycache__' in str(p):
+                  continue
+              if p.suffix in ['.ts', '.tsx', '.js', '.jsx', '.json', '.py', '.sql']:
+                  try:
+                      content = p.read_text(encoding='utf-8', errors='ignore')
+                      for pat, name in secret_patterns:
+                          if re.search(pat, content):
+                              print(f'FAILED: Found potential {name} ({pat}) in {p}')
+                              found = True
+                  except Exception as e:
+                      pass
+          
           if found:
               sys.exit(1)
-          print('Clean: No raw production secret credentials found.')
+          print('Clean: No raw production secret credentials found in frontend or backend.')
           "

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import Optional, List, Callable
 from fastapi import Header, HTTPException, status, Depends
 from pydantic import BaseModel
@@ -65,6 +66,24 @@ async def get_current_user(
             detail="Invalid or expired bearer token.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # Enforce session token expiration lifecycle
+    token_expires_at = user_record.get("token_expires_at_iso")
+    if token_expires_at:
+        try:
+            exp_dt = datetime.fromisoformat(token_expires_at)
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > exp_dt:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Unauthorized: User session token has expired. Please re-authenticate.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except HTTPException:
+            raise
+        except Exception as parse_err:
+            logger.warning(f"Failed to parse user session expiration timestamp: {parse_err}")
 
     user_id = user_record["id"]
 

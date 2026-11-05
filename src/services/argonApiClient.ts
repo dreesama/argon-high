@@ -268,8 +268,8 @@ export interface BackendCreativeQAReport {
 
 export class ArgonApiClient {
   private token: string = typeof window !== 'undefined' 
-    ? (localStorage.getItem('argon_api_token') || (import.meta.env.VITE_ARGON_API_KEY as string) || 'argon_dev_token_syndicate_2026')
-    : ((import.meta.env.VITE_ARGON_API_KEY as string) || 'argon_dev_token_syndicate_2026');
+    ? (localStorage.getItem('argon_api_token') || (import.meta.env.VITE_ARGON_API_KEY as string) || '')
+    : ((import.meta.env.VITE_ARGON_API_KEY as string) || '');
   private workspaceId: string = typeof window !== 'undefined'
     ? (localStorage.getItem('argon_workspace_id') || 'ws-argon-core')
     : 'ws-argon-core';
@@ -330,7 +330,7 @@ export class ArgonApiClient {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.token}`,
-        'X-Workspace-Id': 'ws-argon-core',
+        'X-Workspace-Id': this.workspaceId,
       },
       body: formData,
     });

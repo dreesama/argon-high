@@ -41,19 +41,15 @@ async def transcribe_and_rank_source(
         conn = db_manager.get_connection()
         row = conn.execute("SELECT workspace_id, file_path FROM source_assets WHERE id = ?;", (source_id,)).fetchone()
         conn.close()
-        if row and Path(row["file_path"]).exists():
-            owner_ws = row["workspace_id"]
-            file_path = Path(row["file_path"])
-        else:
-            matches = list(settings.UPLOAD_DIR.glob(f"{source_id}_*"))
-            if not matches:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Source asset '{source_id}' not found in registry or storage.",
-                )
-            file_path = matches[0]
+        if not row or not Path(row["file_path"]).exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Source asset '{source_id}' not found in authoritative records.",
+            )
+        owner_ws = row["workspace_id"]
+        file_path = Path(row["file_path"])
 
-    if owner_ws and owner_ws not in current_user.authorized_workspaces:
+    if not owner_ws or owner_ws not in current_user.authorized_workspaces:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Forbidden: Access denied to source asset in workspace '{owner_ws}'.",
@@ -90,19 +86,15 @@ async def evaluate_clip_creative_qa(
         conn = db_manager.get_connection()
         row = conn.execute("SELECT workspace_id, file_path FROM source_assets WHERE id = ?;", (source_id,)).fetchone()
         conn.close()
-        if row and Path(row["file_path"]).exists():
-            owner_ws = row["workspace_id"]
-            file_path = Path(row["file_path"])
-        else:
-            matches = list(settings.UPLOAD_DIR.glob(f"{source_id}_*"))
-            if not matches:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Source asset '{source_id}' not found in registry or storage.",
-                )
-            file_path = matches[0]
+        if not row or not Path(row["file_path"]).exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Source asset '{source_id}' not found in authoritative records.",
+            )
+        owner_ws = row["workspace_id"]
+        file_path = Path(row["file_path"])
 
-    if owner_ws and owner_ws not in current_user.authorized_workspaces:
+    if not owner_ws or owner_ws not in current_user.authorized_workspaces:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Forbidden: Access denied to source asset in workspace '{owner_ws}'.",

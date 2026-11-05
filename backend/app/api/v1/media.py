@@ -187,27 +187,24 @@ async def inspect_source(
     Enforces workspace isolation so tenants cannot inspect other workspaces' media.
     """
     owner_ws = None
-    if source_id not in SOURCE_REGISTRY:
+    owner_ws = None
+    if source_id in SOURCE_REGISTRY:
+        owner_ws = SOURCE_REGISTRY[source_id]["response"].workspace_id
+        file_path = SOURCE_REGISTRY[source_id]["file_path"]
+    else:
         conn = db_manager.get_connection()
         row = conn.execute("SELECT workspace_id, file_path FROM source_assets WHERE id = ?;", (source_id,)).fetchone()
         conn.close()
-        if row and Path(row["file_path"]).exists():
-            owner_ws = row["workspace_id"]
-            file_path = Path(row["file_path"])
-        else:
-            matches = list(settings.UPLOAD_DIR.glob(f"{source_id}_*"))
-            if not matches:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Source asset '{source_id}' not found.",
-                )
-            file_path = matches[0]
-    else:
-        owner_ws = SOURCE_REGISTRY[source_id]["response"].workspace_id
-        file_path = SOURCE_REGISTRY[source_id]["file_path"]
+        if not row or not Path(row["file_path"]).exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Source asset '{source_id}' not found in authoritative records.",
+            )
+        owner_ws = row["workspace_id"]
+        file_path = Path(row["file_path"])
 
     # Verify workspace ownership
-    if owner_ws and owner_ws not in current_user.authorized_workspaces:
+    if not owner_ws or owner_ws not in current_user.authorized_workspaces:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Forbidden: Access denied to source asset in workspace '{owner_ws}'.",
@@ -264,7 +261,7 @@ async def stream_source_video(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # 2. Locate Source Asset & Determine Workspace Ownership
+    # 2. Locate Source Asset & Determine Authoritative Workspace Ownership
     owner_ws = None
     if source_id in SOURCE_REGISTRY:
         owner_ws = SOURCE_REGISTRY[source_id]["response"].workspace_id
@@ -273,17 +270,16 @@ async def stream_source_video(
         conn = db_manager.get_connection()
         row = conn.execute("SELECT workspace_id, file_path FROM source_assets WHERE id = ?;", (source_id,)).fetchone()
         conn.close()
-        if row and Path(row["file_path"]).exists():
-            owner_ws = row["workspace_id"]
-            file_path = Path(row["file_path"])
-        else:
-            matches = list(settings.UPLOAD_DIR.glob(f"{source_id}_*"))
-            if not matches:
-                raise HTTPException(status_code=404, detail="Source media not found")
-            file_path = matches[0]
+        if not row or not Path(row["file_path"]).exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Source asset '{source_id}' not found in authoritative records.",
+            )
+        owner_ws = row["workspace_id"]
+        file_path = Path(row["file_path"])
 
     # 3. Enforce Strict Workspace Isolation
-    if owner_ws and owner_ws not in auth_user.authorized_workspaces:
+    if not owner_ws or owner_ws not in auth_user.authorized_workspaces:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Forbidden: Access denied to source asset in workspace '{owner_ws}'. Cross-workspace access rejected.",

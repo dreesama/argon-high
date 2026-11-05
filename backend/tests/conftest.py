@@ -42,26 +42,17 @@ def sample_video_path(tmp_path_factory) -> Path:
 @pytest.fixture(scope="session")
 def real_spoken_sample_path(tmp_path_factory) -> Path:
     """
-    Synthesizes an authorized 16:9 test MP4 with genuine spoken English speech audio using Windows SAPI + FFmpeg.
+    Synthesizes an authorized 16:9 test MP4 with genuine spoken English speech audio.
+    Cross-platform: muxes genuine spoken English audio fixture with FFmpeg testsrc.
+    Zero OS-specific dependencies (PowerShell / Windows SAPI removed).
     """
     tmp_dir = tmp_path_factory.mktemp("real_speech_fixtures")
-    wav_file = tmp_dir / "spoken_speech.wav"
     video_file = tmp_dir / "authorized_real_spoken_podcast.mp4"
+    fixtures_dir = Path(__file__).resolve().parent / "fixtures"
+    wav_file = fixtures_dir / "spoken_sample.wav"
 
-    spoken_text = "When you strip away legacy orchestration overhead and pin memory bandwidth directly to the inference kernel, throughput per dollar jumps 2.9x overnight."
-    ps_script = f"""
-Add-Type -AssemblyName System.Speech
-$syn = New-Object System.Speech.Synthesis.SpeechSynthesizer
-$syn.SetOutputToWaveFile('{wav_file.as_posix()}')
-$syn.Speak('{spoken_text}')
-$syn.Dispose()
-"""
-    tmp_ps = tmp_dir / "gen_speech.ps1"
-    tmp_ps.write_text(ps_script, encoding="utf-8")
-    try:
-        subprocess.run(["powershell", "-ExecutionPolicy", "Bypass", "-File", str(tmp_ps)], check=True, capture_output=True)
-    finally:
-        tmp_ps.unlink(missing_ok=True)
+    if not wav_file.exists():
+        raise FileNotFoundError(f"Required speech fixture not found: {wav_file}")
 
     ffmpeg_bin = settings.get_ffmpeg_binary()
     cmd = [

@@ -167,6 +167,16 @@ class PerformanceService:
         net_profit = float(net_profit_dec)
         eph_db_val = eph if eph is not None else 0.0
 
+        # Exact integer minor units (cents)
+        est_rev_cents = int(round(est_rev_dec * 100))
+        rep_rev_cents = int(round(rep_rev_dec * 100))
+        conf_payable_cents = int(round(conf_payable_dec * 100))
+        act_received_cents = int(round(act_received_dec * 100))
+        ver_payout_cents = int(round(ver_payout_dec * 100))
+        fees_cents = int(round(fees_dec * 100))
+        cost_cents = int(round(cost_dec * 100))
+        net_profit_cents = int(round(net_profit_dec * 100))
+
         conn = db_manager.get_connection()
 
         # Ensure referenced publication exists to satisfy foreign key constraint
@@ -188,13 +198,17 @@ class PerformanceService:
             views_count, verified_views_count, cpm_usd, payout_cap_usd,
             estimated_revenue_usd, reported_revenue_usd, confirmed_payable_usd, actually_received_usd,
             verified_payout_usd, platform_fees_usd, production_cost_usd, net_profit_usd,
+            estimated_revenue_cents, reported_revenue_cents, confirmed_payable_cents, actually_received_cents,
+            verified_payout_cents, platform_fees_cents, production_cost_cents, net_profit_cents,
             production_hours, earnings_per_hour_usd, reconciled, snapshot_at_iso, notes
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, (
             snap_id, workspace_id, req.publication_id, req.clip_id, req.campaign_id,
             req.views_count, req.verified_views_count, cpm, cap,
             est_rev, rep_rev, conf_payable, act_received,
             ver_payout, fees, cost, net_profit,
+            est_rev_cents, rep_rev_cents, conf_payable_cents, act_received_cents,
+            ver_payout_cents, fees_cents, cost_cents, net_profit_cents,
             hours, eph_db_val, 1 if req.reconciled else 0, now, req.notes,
         ))
         conn.commit()
@@ -249,7 +263,7 @@ class PerformanceService:
                     clip_id=rd["clip_id"],
                     campaign_id=rd["campaign_id"],
                     views_count=rd["views_count"],
-                    reported_views_count=rd.get("reported_revenue_usd", 0.0),
+                    reported_views_count=rd.get("reported_views_count", rd["views_count"]),
                     verified_views_count=rd["verified_views_count"],
                     confirmed_eligible_views_count=rd["verified_views_count"],
                     cpm_usd=rd["cpm_usd"],

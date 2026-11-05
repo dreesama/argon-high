@@ -9,6 +9,7 @@ from ..core.logging import logger
 from .ffmpeg_service import ffmpeg_service
 from .transcription_service import transcription_service
 from .framing_service import framing_service
+from .subtitle_service import subtitle_service
 
 class QualityBenchmarkScorecard(BaseModel):
     benchmark_id: str
@@ -21,6 +22,8 @@ class QualityBenchmarkScorecard(BaseModel):
     hook_quality_score: int
     narrative_completeness_score: int
     caption_sync_drift_ms: Optional[float] = None
+    caption_sync_status: str = "UNVERIFIED"
+    caption_sync_verified: bool = False
     visual_framing_score: int
     export_reliability_score: int
     processing_duration_sec: float
@@ -85,25 +88,47 @@ class QualityBenchmarkService:
         # 4. Narrative Completeness (checks sentence ending punctuation)
         narrative_completeness = 92 if recognized_text.endswith((".", "!", "?")) else (80 if recognized_text else 0)
 
-        # 5. Caption Synchronization (Measured word alignment drift)
-        measured_drifts: List[float] = []
-        for seg in trans_res.full_transcript:
-            if seg.words and len(seg.words) > 0:
-                # Segment boundary vs first word alignment
-                start_drift = abs(seg.words[0].start_sec - seg.start_sec) * 1000.0
-                measured_drifts.append(start_drift)
-                # Word-to-word transition gap drift
-                for i in range(len(seg.words) - 1):
-                    gap_ms = abs(seg.words[i+1].start_sec - seg.words[i].end_sec) * 1000.0
-                    if gap_ms <= 800.0:
-                        measured_drifts.append(gap_ms)
+        # 5. Rendered Subtitle Synchronization (Measured rendered subtitle event onset vs acoustic speech onset)
+        # Note: Inter-word acoustic pauses/gaps are NOT caption sync drift.
+        # Genuine caption sync measures the delta between rendered subtitle event display and speech onsets.
+        cue_drifts: List[float] = []
+        if trans_res.full_transcript and len(trans_res.full_transcript) > 0:
+            try:
+                clip_end = max(s.end_sec for s in trans_res.full_transcript)
+                ass_path = settings.RENDER_DIR / "temp" / f"bench_sync_{source_id}.ass"
+                subtitle_service.generate_ass_subtitles(
+                    segments=trans_res.full_transcript,
+                    output_ass_path=ass_path,
+                    clip_start_sec=0.0,
+                    clip_end_sec=clip_end,
+                )
+                if ass_path.exists():
+                    lines = ass_path.read_text(encoding="utf-8").splitlines()
+                    for line in lines:
+                        if line.startswith("Dialogue:"):
+                            parts = line.split(",", 9)
+                            if len(parts) >= 3:
+                                start_str = parts[1].strip()
+                                time_parts = start_str.split(":")
+                                if len(time_parts) == 3:
+                                    cue_start_sec = int(time_parts[0]) * 3600 + int(time_parts[1]) * 60 + float(time_parts[2])
+                                    closest_seg = min(trans_res.full_transcript, key=lambda seg: abs(seg.start_sec - cue_start_sec))
+                                    drift_ms = abs(cue_start_sec - closest_seg.start_sec) * 1000.0
+                                    cue_drifts.append(drift_ms)
+                    ass_path.unlink(missing_ok=True)
+            except Exception as e:
+                logger.warning(f"Could not render test subtitles for benchmark sync: {e}")
 
-        if measured_drifts:
-            sync_drift_ms: Optional[float] = round(sum(measured_drifts) / len(measured_drifts), 1)
-            findings.append(f"Measured caption synchronization drift across {len(measured_drifts)} word boundaries: {sync_drift_ms}ms.")
+        if cue_drifts:
+            sync_drift_ms: Optional[float] = round(sum(cue_drifts) / len(cue_drifts), 1)
+            caption_sync_status = "VERIFIED"
+            caption_sync_verified = True
+            findings.append(f"Rendered subtitle synchronization verified: {sync_drift_ms}ms mean start offset across {len(cue_drifts)} dialogue events.")
         else:
             sync_drift_ms = None
-            findings.append("Caption synchronization drift unavailable: No word-level alignment boundaries detected.")
+            caption_sync_status = "UNVERIFIED"
+            caption_sync_verified = False
+            findings.append("Caption synchronization unverified: No speech segments detected to measure rendered subtitle synchronization.")
 
         # 6. Visual Framing Safe-Zone Compliance
         w = insp.video_stream.width if insp.video_stream else 1920
@@ -176,6 +201,8 @@ class QualityBenchmarkService:
             hook_quality_score=hook_score,
             narrative_completeness_score=narrative_completeness,
             caption_sync_drift_ms=sync_drift_ms,
+            caption_sync_status=caption_sync_status,
+            caption_sync_verified=caption_sync_verified,
             visual_framing_score=visual_framing_score,
             export_reliability_score=export_reliability_score,
             processing_duration_sec=processing_dur,

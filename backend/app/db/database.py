@@ -1,6 +1,7 @@
 import json
 import sqlite3
 import threading
+from decimal import Decimal
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
@@ -47,6 +48,7 @@ class DatabaseManager:
                 name TEXT NOT NULL,
                 api_token TEXT UNIQUE NOT NULL,
                 system_role TEXT NOT NULL DEFAULT 'operator',
+                token_expires_at_iso TEXT,
                 created_at_iso TEXT NOT NULL
             );
             """)
@@ -228,7 +230,7 @@ class DatabaseManager:
             );
             """)
 
-            # 11. Performance Snapshots (Fixed-Precision Financial Ledger with 4-Tier Revenue States)
+            # 11. Performance Snapshots (Fixed-Precision Financial Ledger with 4-Tier Revenue States and Minor Units)
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS performance_snapshots (
                 id TEXT PRIMARY KEY,
@@ -248,6 +250,14 @@ class DatabaseManager:
                 platform_fees_usd REAL NOT NULL DEFAULT 0.0,
                 production_cost_usd REAL NOT NULL DEFAULT 0.0,
                 net_profit_usd REAL NOT NULL DEFAULT 0.0,
+                estimated_revenue_cents INTEGER NOT NULL DEFAULT 0,
+                reported_revenue_cents INTEGER NOT NULL DEFAULT 0,
+                confirmed_payable_cents INTEGER NOT NULL DEFAULT 0,
+                actually_received_cents INTEGER NOT NULL DEFAULT 0,
+                verified_payout_cents INTEGER NOT NULL DEFAULT 0,
+                platform_fees_cents INTEGER NOT NULL DEFAULT 0,
+                production_cost_cents INTEGER NOT NULL DEFAULT 0,
+                net_profit_cents INTEGER NOT NULL DEFAULT 0,
                 production_hours REAL,
                 earnings_per_hour_usd REAL,
                 reconciled INTEGER NOT NULL DEFAULT 0,
@@ -258,7 +268,7 @@ class DatabaseManager:
             );
             """)
 
-            # 12. Payouts (Bank Disbursements, Escrow Releases & Receipts)
+            # 12. Payouts (Bank Disbursements, Escrow Releases, Receipts & Minor Units)
             cursor.execute("""
             CREATE TABLE IF NOT EXISTS payouts (
                 id TEXT PRIMARY KEY,
@@ -267,6 +277,7 @@ class DatabaseManager:
                 clip_id TEXT,
                 publication_id TEXT,
                 amount_usd REAL NOT NULL,
+                amount_cents INTEGER NOT NULL DEFAULT 0,
                 effective_cpm_usd REAL NOT NULL,
                 verified_views_counted INTEGER NOT NULL DEFAULT 0,
                 verification_state TEXT NOT NULL DEFAULT 'accrued-unsettled',
@@ -280,6 +291,10 @@ class DatabaseManager:
 
             # Dynamic column migrations for existing tables
             try:
+                user_cols = {r["name"] for r in cursor.execute("PRAGMA table_info(users);").fetchall()}
+                if "token_expires_at_iso" not in user_cols:
+                    cursor.execute("ALTER TABLE users ADD COLUMN token_expires_at_iso TEXT;")
+
                 camp_cols = {r["name"] for r in cursor.execute("PRAGMA table_info(campaigns);").fetchall()}
                 if "is_synthetic" not in camp_cols:
                     cursor.execute("ALTER TABLE campaigns ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0;")
@@ -292,6 +307,20 @@ class DatabaseManager:
                     cursor.execute("ALTER TABLE performance_snapshots ADD COLUMN confirmed_payable_usd REAL NOT NULL DEFAULT 0.0;")
                 if "actually_received_usd" not in existing_cols:
                     cursor.execute("ALTER TABLE performance_snapshots ADD COLUMN actually_received_usd REAL NOT NULL DEFAULT 0.0;")
+                
+                # Integer minor units (cents) migration
+                minor_cols = [
+                    "estimated_revenue_cents", "reported_revenue_cents", "confirmed_payable_cents",
+                    "actually_received_cents", "verified_payout_cents", "platform_fees_cents",
+                    "production_cost_cents", "net_profit_cents"
+                ]
+                for mc in minor_cols:
+                    if mc not in existing_cols:
+                        cursor.execute(f"ALTER TABLE performance_snapshots ADD COLUMN {mc} INTEGER NOT NULL DEFAULT 0;")
+
+                payout_cols = {r["name"] for r in cursor.execute("PRAGMA table_info(payouts);").fetchall()}
+                if "amount_cents" not in payout_cols:
+                    cursor.execute("ALTER TABLE payouts ADD COLUMN amount_cents INTEGER NOT NULL DEFAULT 0;")
             except Exception as mig_err:
                 logger.warning(f"Column migration check note: {mig_err}")
 
@@ -539,16 +568,17 @@ class DatabaseManager:
         now = datetime.now(timezone.utc).isoformat()
         voucher_json = json.dumps(payment_voucher) if payment_voucher else "{}"
         conn = self.get_connection()
+        amount_cents = int(round(Decimal(str(amount_usd)) * 100))
         conn.execute("""
         INSERT OR REPLACE INTO payouts (
             id, workspace_id, campaign_id, clip_id, publication_id,
-            amount_usd, effective_cpm_usd, verified_views_counted,
+            amount_usd, amount_cents, effective_cpm_usd, verified_views_counted,
             verification_state, reference_code, payment_voucher_json,
             disbursed_at_iso, created_at_iso
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, (
             payout_id, workspace_id, campaign_id, clip_id, publication_id,
-            round(amount_usd, 2), round(effective_cpm_usd, 2), verified_views_counted,
+            round(amount_usd, 2), amount_cents, round(effective_cpm_usd, 2), verified_views_counted,
             verification_state, reference_code, voucher_json,
             disbursed_at_iso or now, now,
         ))
@@ -559,6 +589,7 @@ class DatabaseManager:
             "workspace_id": workspace_id,
             "campaign_id": campaign_id,
             "amount_usd": round(amount_usd, 2),
+            "amount_cents": amount_cents,
             "effective_cpm_usd": round(effective_cpm_usd, 2),
             "verified_views_counted": verified_views_counted,
             "verification_state": verification_state,
