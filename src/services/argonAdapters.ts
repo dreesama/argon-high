@@ -8,6 +8,7 @@ import {
   RenderJob,
   SourceAsset,
 } from '../types/argon';
+import { BackendCampaignRecord, BackendMediaUploadResponse } from './argonApiClient';
 
 /**
  * Explicit Service Adapter Boundaries (V2.5 Production Readiness)
@@ -232,4 +233,73 @@ export function downloadExportSpecJson(
   a.click();
   document.body.removeChild(a);
   URL.revokeObjectURL(url);
+}
+
+export function adaptBackendCampaignToFrontend(rec: BackendCampaignRecord): Campaign {
+  const platforms = (rec.eligible_platforms || []).map((p) => {
+    const lower = p.toLowerCase();
+    if (lower.includes('tiktok')) return 'TikTok' as PlatformType;
+    if (lower.includes('short') || lower.includes('youtube')) return 'YouTube Shorts' as PlatformType;
+    if (lower.includes('reel') || lower.includes('instagram')) return 'Instagram Reels' as PlatformType;
+    if (lower.includes('x') || lower.includes('twitter')) return 'X Video' as PlatformType;
+    return 'TikTok' as PlatformType;
+  });
+
+  const cpm = rec.cpm_usd ?? 5.5;
+  const cap = rec.payout_cap_usd ?? 1800;
+  const total = cap * 8;
+  const estVal = Math.min(cap, Math.round((85000 / 1000) * cpm * 0.92));
+
+  return {
+    id: rec.campaign_id,
+    workspaceId: rec.workspace_id,
+    title: rec.title,
+    sponsorName: rec.sponsor_name,
+    sourceChannel: 'Verified Sponsor Brief Feed',
+    sourceCategory: 'Macro & Fintech',
+    cpmUsd: cpm,
+    totalBudgetUsd: total,
+    remainingBudgetUsd: total,
+    payoutCapPerClipUsd: cap,
+    minViewsForPayout: 5000,
+    eligiblePlatforms: platforms.length > 0 ? platforms : ['TikTok', 'YouTube Shorts'],
+    deadlineIso: rec.deadline_iso || new Date(Date.now() + 86400000 * 30).toISOString(),
+    eligibility: 'Eligible',
+    estimatedValuePerClipUsd: estVal,
+    valuationAssumptions: {
+      expectedViewsPerClip: 85000,
+      qualificationRatePct: 92,
+      effectiveCpmUsd: cpm,
+      platformSplitNote: 'Weighted 60/40 Shorts/TikTok',
+      formulaSummary: `85K est. views × $${cpm.toFixed(2)} CPM = $${estVal}/clip`,
+    },
+    briefRawText: rec.raw_brief_text,
+    allowedSourceUrls: [],
+    aiParseConfidence: 96,
+    missingBriefFields: rec.unknown_fields || [],
+    isDemoData: rec.is_synthetic ?? false,
+    createdAtIso: rec.created_at_iso,
+  };
+}
+
+export function adaptBackendSourceAssetToFrontend(
+  resp: BackendMediaUploadResponse,
+  streamUrl: string
+): SourceAsset {
+  return {
+    id: resp.source_asset_id,
+    workspaceId: resp.workspace_id,
+    campaignId: resp.campaign_id,
+    title: resp.title,
+    creatorName: 'Verified Ingest Creator',
+    sourceUrl: streamUrl,
+    durationSec: resp.duration_sec,
+    resolution: (resp.resolution as any) || '1920x1080',
+    fps: (resp.fps as any) || 30,
+    audioLufs: resp.audio_lufs ?? -14.0,
+    authorizationProof: resp.authorization_proof,
+    analysisStatus: 'unprocessed',
+    waveformPeaks: [],
+    transcript: [],
+  };
 }

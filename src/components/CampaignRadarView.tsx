@@ -60,9 +60,7 @@ export const CampaignRadarView: React.FC<CampaignRadarProps> = ({
 
   // Create Campaign Dialog state
   const [briefText, setBriefText] = useState(SAMPLE_BRIEF_PRESET);
-  const [sourceLinksText, setSourceLinksText] = useState(
-    'https://media.demo.argonhigh.internal/veloxdb-systems-ep89-4k.mp4'
-  );
+  const [sourceLinksText, setSourceLinksText] = useState('');
   const [customTitle, setCustomTitle] = useState('VeloxDB Serverless Postgres Launch Bounty');
   const [customSponsor, setCustomSponsor] = useState('VeloxDB Cloud');
   const [customSourceChannel, setCustomSourceChannel] = useState(
@@ -160,10 +158,7 @@ export const CampaignRadarView: React.FC<CampaignRadarProps> = ({
         formulaSummary: `85K est. views × $${cpmVal.toFixed(2)} CPM × 92% qualification = $${estVal} est. value/clip`,
       },
       briefRawText: briefText,
-      allowedSourceUrls:
-        urls.length > 0
-          ? urls
-          : ['https://media.demo.argonhigh.internal/custom-brief-source.mp4'],
+      allowedSourceUrls: urls,
       aiParseConfidence: parseConfidence,
       missingBriefFields: missingFields,
       isDemoData: true,

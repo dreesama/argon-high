@@ -434,6 +434,30 @@ class DatabaseManager:
                 1600.0, 5.00, "Open distribution authorization with sponsor watermark.",
                 json.dumps([]), now, now
             ),
+            (
+                "cmp-beta-syndicate", "ws-syndicate-beta", "Beta Syndicate: High-Frequency Infrastructure",
+                "Syndicate Beta Labs",
+                "Short-form clips demonstrating high-throughput video pipelines and hardware acceleration.",
+                1, json.dumps(["tiktok", "youtube_shorts"]), 20.0, 50.0,
+                json.dumps(["#SyndicateBeta", "#VideoAI"]),
+                json.dumps(["@SyndicateBeta"]),
+                json.dumps(["Sponsored by Syndicate Beta Labs. For testing purposes only."]),
+                json.dumps(["guaranteed returns"]),
+                1500.0, 4.50, "Full digital syndication rights for beta partners.",
+                json.dumps([]), now, now
+            ),
+            (
+                "cmp-meridian-partner", "ws-partner-meridian", "Meridian Partner: Liquidity Architecture",
+                "Meridian Financial Technologies Ltd.",
+                "Short-form institutional liquidity and routing analysis.",
+                1, json.dumps(["tiktok", "youtube_shorts"]), 25.0, 60.0,
+                json.dumps(["#MeridianPartner", "#InstitutionalFX"]),
+                json.dumps(["@MeridianFX"]),
+                json.dumps(["Sponsored by Meridian FX. Past performance is not indicative of future returns."]),
+                json.dumps(["get rich quick"]),
+                2000.0, 5.00, "Partner exclusive distribution license.",
+                json.dumps([]), now, now
+            ),
         ]
         cursor.executemany("""
         INSERT OR IGNORE INTO campaigns (
@@ -458,7 +482,7 @@ class DatabaseManager:
     def get_user_workspaces(self, user_id: str) -> List[Dict[str, Any]]:
         conn = self.get_connection()
         rows = conn.execute("""
-        SELECT w.id, w.name, w.slug, w.tier, wm.role, wm.joined_at_iso
+        SELECT w.id, w.name, w.slug, w.tier, wm.role, wm.joined_at_iso, w.compute_credits_balance
         FROM workspaces w
         JOIN workspace_members wm ON w.id = wm.workspace_id
         WHERE wm.user_id = ?;

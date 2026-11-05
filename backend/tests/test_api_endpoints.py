@@ -169,3 +169,44 @@ async def test_render_with_burned_captions_preset(async_client: AsyncClient, sam
     assert poll_data["status"] == "completed"
     assert poll_data["output_inspection"]["width"] == 1080
     assert poll_data["output_inspection"]["height"] == 1920
+
+@pytest.mark.asyncio
+async def test_auth_session_endpoint_and_workspace_memberships(
+    async_client: AsyncClient,
+    unauthenticated_async_client: AsyncClient,
+):
+    """
+    Verifies that GET /api/v1/auth/session returns authoritative identity and workspace memberships,
+    and strictly rejects unauthorized cross-workspace requests and unauthenticated requests.
+    """
+    # 1. Valid authenticated session for default operator
+    resp = await async_client.get(
+        "/api/v1/auth/session",
+        headers={
+            "Authorization": "Bearer argon_dev_token_syndicate_2026",
+            "X-Workspace-Id": "ws-argon-core",
+        },
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["user_id"] == "usr-operator-01"
+    assert data["active_workspace_id"] == "ws-argon-core"
+    workspace_ids = [w["id"] for w in data["workspaces"]]
+    assert "ws-argon-core" in workspace_ids
+    assert "ws-syndicate-beta" in workspace_ids
+    assert "ws-partner-meridian" not in workspace_ids
+
+    # 2. Strict rejection of unauthorized cross-workspace access
+    cross_resp = await async_client.get(
+        "/api/v1/auth/session",
+        headers={
+            "Authorization": "Bearer argon_dev_token_syndicate_2026",
+            "X-Workspace-Id": "ws-partner-meridian",
+        },
+    )
+    assert cross_resp.status_code == 403
+    assert "is not a member of requested workspace" in cross_resp.json()["detail"]
+
+    # 3. Strict rejection of unauthenticated requests
+    unauth_resp = await unauthenticated_async_client.get("/api/v1/auth/session")
+    assert unauth_resp.status_code == 401

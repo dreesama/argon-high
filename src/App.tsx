@@ -34,6 +34,7 @@ import {
   ReviewDecision,
   SourceAsset,
   TranscriptSegment,
+  Workspace,
 } from "./types/argon"
 import {
   buildComplianceChecksForClip,
@@ -60,7 +61,12 @@ import { GlobalSearchModal, SettingsModal } from "./components/SystemModals"
 import { DemoTag } from "./components/ArgonBadges"
 import { VibeButton } from "./vibe/VibeComponents"
 import {
+  adaptBackendCampaignToFrontend,
+  adaptBackendSourceAssetToFrontend,
+} from "./services/argonAdapters"
+import {
   argonApiClient,
+  BackendAuthSession,
   BackendTranscriptionResponse,
 } from "./services/argonApiClient"
 
@@ -81,13 +87,19 @@ interface PersistedState {
 }
 
 function loadInitialState(): PersistedState {
+  const validWorkspaceIds = INITIAL_WORKSPACES.map((w) => w.id)
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<PersistedState>
       if (parsed.campaigns && parsed.clips && parsed.sourceAssets) {
+        const resolvedWorkspaceId =
+          parsed.workspaceId && validWorkspaceIds.includes(parsed.workspaceId)
+            ? parsed.workspaceId
+            : INITIAL_WORKSPACES[0].id
+
         return {
-          workspaceId: parsed.workspaceId ?? INITIAL_WORKSPACES[0].id,
+          workspaceId: resolvedWorkspaceId,
           campaigns: parsed.campaigns,
           sourceAssets: parsed.sourceAssets,
           clips: parsed.clips,
@@ -130,15 +142,20 @@ export default function App() {
   const [activeNav, setActiveNav] = useState<NavSection>("command-center")
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
+  // Verified Backend Session & Workspaces State
+  const [authSession, setAuthSession] = useState<BackendAuthSession | null>(null)
+  const [authError, setAuthError] = useState<string | null>(null)
+  const [availableWorkspaces, setAvailableWorkspaces] = useState<Workspace[]>(INITIAL_WORKSPACES)
+
   // Active selection pointers across Studio, Guard, and Queue
   const [selectedCampaignId, setSelectedCampaignId] = useState<string>(
-    state.campaigns[0]?.id ?? "cmp-tensor-cloud",
+    state.campaigns[0]?.id ?? "cmp-meridian-fx",
   )
   const [selectedSourceId, setSelectedSourceId] = useState<string>(
-    state.sourceAssets[0]?.id ?? "src-latent-142",
+    state.sourceAssets[0]?.id ?? "",
   )
   const [selectedClipId, setSelectedClipId] = useState<string>(
-    state.clips[0]?.id ?? "clip-tc-01",
+    state.clips[0]?.id ?? "",
   )
 
   // Modals & Popovers
@@ -160,9 +177,93 @@ export default function App() {
     }
   }, [state])
 
-  // Synchronize active workspace context to API client
+  // Synchronize active workspace context to API client and verify server-side session
   useEffect(() => {
+    let active = true
     argonApiClient.setWorkspaceId(state.workspaceId)
+
+    argonApiClient
+      .checkOperationalReadiness()
+      .then(async (readiness) => {
+        if (!active) return
+
+        if (readiness.ready && readiness.session) {
+          setAuthError(null)
+          setAuthSession(readiness.session)
+
+          const mappedWorkspaces: Workspace[] = readiness.session.workspaces.map((sw) => ({
+            id: sw.id,
+            name: sw.name,
+            slug: sw.slug,
+            tier:
+              sw.tier === "enterprise"
+                ? "Enterprise Desk"
+                : sw.tier === "partner"
+                  ? "Private Operator"
+                  : "Syndicate Pro",
+            activeOperators: sw.role === "owner" ? 2 : 1,
+            monthlyComputeBudgetUsd: (sw.compute_credits_balance ?? 15000) / 10,
+            usedComputeUsd: 380,
+            storageUsedGb: 412,
+          }))
+          setAvailableWorkspaces(mappedWorkspaces)
+
+          const authorizedIds = readiness.session.workspaces.map((w) => w.id)
+          if (!authorizedIds.includes(state.workspaceId)) {
+            const fallbackWs = readiness.session.active_workspace_id || authorizedIds[0]
+            setState((prev) => ({ ...prev, workspaceId: fallbackWs }))
+            argonApiClient.setWorkspaceId(fallbackWs)
+            return
+          }
+
+          // Fetch real backend campaigns for this verified workspace
+          try {
+            const backendCamps = await argonApiClient.getCampaigns()
+            if (backendCamps && backendCamps.length > 0) {
+              const mappedCamps = backendCamps.map(adaptBackendCampaignToFrontend)
+              setState((prev) => ({
+                ...prev,
+                campaigns: mappedCamps,
+                ...(mappedCamps.some((c) => c.id === selectedCampaignId)
+                  ? {}
+                  : { selectedCampaignId: mappedCamps[0].id }),
+              }))
+            }
+          } catch (campErr) {
+            console.warn("Failed to load backend campaigns:", campErr)
+          }
+
+          // Fetch real backend source assets for this verified workspace
+          try {
+            const backendSources = await argonApiClient.listSourceAssets()
+            if (backendSources && backendSources.length > 0) {
+              const mappedSources = backendSources.map((bs) =>
+                adaptBackendSourceAssetToFrontend(
+                  bs,
+                  argonApiClient.getSourceStreamUrl(bs.source_asset_id),
+                ),
+              )
+              setState((prev) => ({
+                ...prev,
+                sourceAssets: mappedSources,
+              }))
+            }
+          } catch (srcErr) {
+            console.warn("Failed to load backend source assets:", srcErr)
+          }
+        } else {
+          setAuthError(readiness.errorMessage)
+        }
+      })
+      .catch((err) => {
+        if (active) {
+          setAuthError(err.message || "Failed to verify backend session")
+        }
+      })
+
+    return () => {
+      active = false
+    }
   }, [state.workspaceId])
 
   // Keyboard shortcut Cmd/Ctrl + K for global search
@@ -183,9 +284,10 @@ export default function App() {
 
   const activeWorkspace = useMemo(
     () =>
-      INITIAL_WORKSPACES.find((w) => w.id === state.workspaceId) ??
+      availableWorkspaces.find((w) => w.id === state.workspaceId) ??
+      availableWorkspaces[0] ??
       INITIAL_WORKSPACES[0],
-    [state.workspaceId],
+    [availableWorkspaces, state.workspaceId],
   )
 
   const triggerFeedback = (msg: string) => {
@@ -992,7 +1094,7 @@ export default function App() {
                   }}
                   className="w-full appearance-none bg-transparent pr-5 text-xs font-bold text-vibe-text-primary focus:outline-none"
                 >
-                  {INITIAL_WORKSPACES.map((ws) => (
+                  {availableWorkspaces.map((ws) => (
                     <option
                       key={ws.id}
                       value={ws.id}
@@ -1010,6 +1112,14 @@ export default function App() {
                   {activeWorkspace.activeOperators} ops
                 </span>
               </div>
+              {authError && (
+                <div className="mt-2 rounded border border-amber-500/40 bg-amber-500/10 p-2 text-[10px] text-amber-300">
+                  <div className="flex items-center gap-1 font-bold text-amber-400">
+                    <AlertTriangle className="h-3 w-3 shrink-0" /> Auth / Access
+                  </div>
+                  <div className="mt-0.5 leading-tight">{authError}</div>
+                </div>
+              )}
             </div>
           )}
 
@@ -1324,6 +1434,7 @@ export default function App() {
               onTriggerSimulatedAnalysis={handleTriggerSimulatedAnalysis}
               onTriggerSimulatedRender={handleTriggerSimulatedRender}
               onAddSourceAsset={handleAddSourceAsset}
+              authError={authError}
               onNavigate={setActiveNav}
             />
           )}

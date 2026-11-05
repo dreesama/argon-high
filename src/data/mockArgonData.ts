@@ -16,41 +16,41 @@ import {
 
 export const INITIAL_WORKSPACES: Workspace[] = [
   {
-    id: 'ws-northstar',
-    name: 'Northstar Arbitrage Desk',
-    slug: 'northstar-ops',
-    tier: 'Syndicate Pro',
-    activeOperators: 6,
-    monthlyComputeBudgetUsd: 1200,
-    usedComputeUsd: 384.5,
-    storageUsedGb: 418.2,
+    id: 'ws-argon-core',
+    name: 'Argon Syndicate Core Desk',
+    slug: 'argon-core',
+    tier: 'Enterprise Desk',
+    activeOperators: 2,
+    monthlyComputeBudgetUsd: 5000,
+    usedComputeUsd: 1240.0,
+    storageUsedGb: 612.4,
   },
   {
-    id: 'ws-kestrel',
-    name: 'Kestrel Solo Labs',
-    slug: 'kestrel-solo',
+    id: 'ws-syndicate-beta',
+    name: 'Beta Clipping Syndicate',
+    slug: 'syndicate-beta',
+    tier: 'Syndicate Pro',
+    activeOperators: 1,
+    monthlyComputeBudgetUsd: 1500,
+    usedComputeUsd: 420.0,
+    storageUsedGb: 198.5,
+  },
+  {
+    id: 'ws-partner-meridian',
+    name: 'Meridian Partner Workspace',
+    slug: 'partner-meridian',
     tier: 'Private Operator',
     activeOperators: 1,
-    monthlyComputeBudgetUsd: 300,
-    usedComputeUsd: 92.0,
-    storageUsedGb: 84.6,
-  },
-  {
-    id: 'ws-vanguard',
-    name: 'Vanguard Media Syndicate',
-    slug: 'vanguard-syndicate',
-    tier: 'Enterprise Desk',
-    activeOperators: 14,
-    monthlyComputeBudgetUsd: 4500,
-    usedComputeUsd: 1910.8,
-    storageUsedGb: 1840.0,
+    monthlyComputeBudgetUsd: 2000,
+    usedComputeUsd: 680.0,
+    storageUsedGb: 284.0,
   },
 ];
 
 export const INITIAL_CAMPAIGNS: Campaign[] = [
   {
     id: 'cmp-tensor-cloud',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     title: 'TensorScale GPU Cluster Launch Podcast Bounty',
     sponsorName: 'TensorScale Infrastructure',
     sourceChannel: 'Latent Space Architecture Podcast (Fictional Demo)',
@@ -74,7 +74,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     briefRawText:
       'Clip high-conviction technical discussions from Episode #142 featuring CEO Mara Vance on bare-metal H200 cluster interconnects. Must maintain 9:16 1080x1920 vertical format, duration strictly between 28s and 58s, include TensorScale top-right watermark badge, and keep burned-in captions active. No background music louder than -18 LUFS.',
     allowedSourceUrls: [
-      'https://media.demo.argonhigh.internal/latent-space-ep142-mara-vance-4k.mp4',
+      '',
     ],
     aiParseConfidence: 96,
     missingBriefFields: [],
@@ -83,7 +83,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
   },
   {
     id: 'cmp-meridian-fx',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     title: 'Meridian Treasury API — Founder Fireside Series',
     sponsorName: 'Meridian Financial Systems',
     sourceChannel: 'All-In Macro & Liquidity Summit (Fictional Demo)',
@@ -107,7 +107,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     briefRawText:
       'Extract moments discussing cross-border T+0 settlement, treasury yield leakage, and CFO automation. Must be 9:16 1080p, 30s-60s duration, include sponsor disclosure in final 3s CTA card, and require manual compliance sign-off on financial claims.',
     allowedSourceUrls: [
-      'https://media.demo.argonhigh.internal/meridian-liquidity-summit-keynote.mp4',
+      '',
     ],
     aiParseConfidence: 92,
     missingBriefFields: ['Explicit music licensing whitelist link'],
@@ -116,7 +116,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
   },
   {
     id: 'cmp-chronos-wear',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     title: 'Chronos Biometric Ring Gen-3 Teardown Clips',
     sponsorName: 'Chronos Labs Hardware',
     sourceChannel: 'Founders & Photonics Deep Dive (Fictional Demo)',
@@ -140,7 +140,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     briefRawText:
       'Clip sensor accuracy debates, sleep staging benchmarks, and titanium machining segments. 9:16 vertical, 20s-50s duration, high-contrast captions required, watermark mandatory.',
     allowedSourceUrls: [
-      'https://media.demo.argonhigh.internal/chronos-ring-teardown-lab.mp4',
+      '',
     ],
     aiParseConfidence: 94,
     missingBriefFields: [],
@@ -149,7 +149,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
   },
   {
     id: 'cmp-oxide-db',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     title: 'OxideVector Distributed Storage Benchmark Talks',
     sponsorName: 'OxideVector DB',
     sourceChannel: 'Systems Engineering Conf 2026 (Fictional Demo)',
@@ -173,7 +173,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     briefRawText:
       'Focus on tail-latency p99.9 comparisons and zero-copy NVMe replication segments. Must keep code/diagram split-screen visible in top frame. 25s-55s runtime.',
     allowedSourceUrls: [
-      'https://media.demo.argonhigh.internal/oxidevector-keynote-2026.mp4',
+      '',
     ],
     aiParseConfidence: 88,
     missingBriefFields: ['Regional geo-multiplier schedule', 'Sub-account whitelisting form'],
@@ -182,7 +182,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
   },
   {
     id: 'cmp-aether-sec',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     title: 'AetherZero Autonomous Red-Team Live Debrief',
     sponsorName: 'AetherZero Security',
     sourceChannel: 'ZeroDay Executive Podcast (Fictional Demo)',
@@ -206,7 +206,7 @@ export const INITIAL_CAMPAIGNS: Campaign[] = [
     briefRawText:
       'Authorized operators only. Clip live SOC incident simulations and AI exploit remediation narratives. 30s-58s vertical.',
     allowedSourceUrls: [
-      'https://media.demo.argonhigh.internal/aetherzero-redteam-ep88.mp4',
+      '',
     ],
     aiParseConfidence: 97,
     missingBriefFields: [],
@@ -321,11 +321,11 @@ export const INITIAL_CAMPAIGN_RULES: CampaignRule[] = [
 export const INITIAL_SOURCE_ASSETS: SourceAsset[] = [
   {
     id: 'src-latent-142',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     campaignId: 'cmp-tensor-cloud',
     title: 'Latent Space Ep #142 — Mara Vance on 100,000 GPU Cluster Topology (Fictional Demo)',
     creatorName: 'Mara Vance & Devon K.',
-    sourceUrl: 'https://media.demo.argonhigh.internal/latent-space-ep142-mara-vance-4k.mp4',
+    sourceUrl: '',
     durationSec: 4120,
     resolution: '3840x2160',
     fps: 60,
@@ -422,11 +422,11 @@ export const INITIAL_SOURCE_ASSETS: SourceAsset[] = [
   },
   {
     id: 'src-meridian-keynote',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     campaignId: 'cmp-meridian-fx',
     title: 'All-In Macro Summit — Julian Thorne on Cross-Border Liquidity Traps (Fictional Demo)',
     creatorName: 'Julian Thorne (CFO, Meridian)',
-    sourceUrl: 'https://media.demo.argonhigh.internal/meridian-liquidity-summit-keynote.mp4',
+    sourceUrl: '',
     durationSec: 2940,
     resolution: '3840x2160',
     fps: 30,
@@ -466,7 +466,7 @@ export const INITIAL_SOURCE_ASSETS: SourceAsset[] = [
 export const INITIAL_CLIP_CANDIDATES: ClipCandidate[] = [
   {
     id: 'clip-tc-01',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     campaignId: 'cmp-tensor-cloud',
     sourceAssetId: 'src-latent-142',
     title: 'The 3.4x Hyperscaler Packet Retry Tax (14m → 41s Checkpoints)',
@@ -501,7 +501,7 @@ export const INITIAL_CLIP_CANDIDATES: ClipCandidate[] = [
   },
   {
     id: 'clip-tc-02',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     campaignId: 'cmp-tensor-cloud',
     sourceAssetId: 'src-latent-142',
     title: 'Why Series A AI Founders Burn 75% of Seed on Cloud Lockups',
@@ -536,7 +536,7 @@ export const INITIAL_CLIP_CANDIDATES: ClipCandidate[] = [
   },
   {
     id: 'clip-tc-03',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     campaignId: 'cmp-tensor-cloud',
     sourceAssetId: 'src-latent-142',
     title: 'Submerging 4,096 GPUs in West Texas Heatwave (120kW Racks)',
@@ -570,7 +570,7 @@ export const INITIAL_CLIP_CANDIDATES: ClipCandidate[] = [
   },
   {
     id: 'clip-mf-01',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     campaignId: 'cmp-meridian-fx',
     sourceAssetId: 'src-meridian-keynote',
     title: 'The Hidden 190 bps FX Spread & $14M Nostro Account Trap',
@@ -868,7 +868,7 @@ export const INITIAL_PAYOUTS: Payout[] = [
 export const INITIAL_ACTIVITY: ActivityEvent[] = [
   {
     id: 'act-1',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     timestampIso: '12m ago',
     actor: 'Soren Lindqvist',
     category: 'review',
@@ -879,7 +879,7 @@ export const INITIAL_ACTIVITY: ActivityEvent[] = [
   },
   {
     id: 'act-2',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     timestampIso: '28m ago',
     actor: 'Elena Rostova',
     category: 'compliance',
@@ -890,7 +890,7 @@ export const INITIAL_ACTIVITY: ActivityEvent[] = [
   },
   {
     id: 'act-3',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     timestampIso: '1h ago',
     actor: 'Argon Heuristic Engine (Demo)',
     category: 'analysis',
@@ -900,7 +900,7 @@ export const INITIAL_ACTIVITY: ActivityEvent[] = [
   },
   {
     id: 'act-4',
-    workspaceId: 'ws-northstar',
+    workspaceId: 'ws-argon-core',
     timestampIso: '3h ago',
     actor: 'Demo Escrow Ledger',
     category: 'payout',

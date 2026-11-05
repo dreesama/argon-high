@@ -267,6 +267,24 @@ export interface BackendCreativeQAReport {
   heuristic_model_disclaimer: string
 }
 
+export interface BackendWorkspaceMembership {
+  id: string
+  name: string
+  slug: string
+  tier: string
+  role: string
+  joined_at_iso?: string
+  compute_credits_balance?: number
+}
+
+export interface BackendAuthSession {
+  user_id: string
+  email?: string
+  role: string
+  active_workspace_id: string
+  workspaces: BackendWorkspaceMembership[]
+}
+
 export class ArgonApiClient {
   private token: string =
     typeof window !== "undefined"
@@ -322,6 +340,76 @@ export class ArgonApiClient {
     } catch {
       return null
     }
+  }
+
+  async getSession(): Promise<BackendAuthSession> {
+    const resp = await fetch(`${API_BASE}/auth/session`, {
+      method: "GET",
+      headers: this.getHeaders(),
+    })
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }))
+      const error = new Error(err.detail || `Auth session failed with status ${resp.status}`)
+      ;(error as any).status = resp.status
+      throw error
+    }
+    return await resp.json()
+  }
+
+  async checkOperationalReadiness(): Promise<{
+    ready: boolean
+    backendHealth: BackendHealth | null
+    session: BackendAuthSession | null
+    errorStatus: number | null
+    errorMessage: string | null
+  }> {
+    const health = await this.checkHealth()
+    if (!health || health.status !== "operational") {
+      return {
+        ready: false,
+        backendHealth: health,
+        session: null,
+        errorStatus: 503,
+        errorMessage: "Backend API service is unreachable or offline.",
+      }
+    }
+
+    try {
+      const session = await this.getSession()
+      return {
+        ready: true,
+        backendHealth: health,
+        session,
+        errorStatus: null,
+        errorMessage: null,
+      }
+    } catch (err: any) {
+      const status = err.status || 401
+      return {
+        ready: false,
+        backendHealth: health,
+        session: null,
+        errorStatus: status,
+        errorMessage:
+          status === 403
+            ? `Forbidden (403): Workspace '${this.workspaceId}' access denied for this user session.`
+            : status === 401
+              ? "Unauthorized (401): Invalid or missing authentication credentials."
+              : `Authentication error (${status}): ${err.message}`,
+      }
+    }
+  }
+
+  async listSourceAssets(campaignId?: string): Promise<BackendMediaUploadResponse[]> {
+    const url = campaignId
+      ? `${API_BASE}/media?campaign_id=${encodeURIComponent(campaignId)}`
+      : `${API_BASE}/media`
+    const resp = await fetch(url, {
+      method: "GET",
+      headers: this.getHeaders(),
+    })
+    if (!resp.ok) return []
+    return await resp.json()
   }
 
   async uploadSourceVideo(

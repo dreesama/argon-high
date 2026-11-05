@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from .auth import router as auth_router
 from .media import router as media_router
 from .intelligence import router as intelligence_router
 from .render import router as render_router
@@ -22,6 +23,7 @@ async def health_check():
         },
     }
 
+api_router.include_router(auth_router)
 api_router.include_router(media_router)
 api_router.include_router(intelligence_router)
 api_router.include_router(render_router)

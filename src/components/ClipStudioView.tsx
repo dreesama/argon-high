@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react"
+import React, { useCallback, useEffect, useMemo, useState } from "react"
 import {
   CheckCircle2,
   ChevronDown,
@@ -74,6 +74,7 @@ interface ClipStudioProps {
   selectedSourceId: string
   selectedClipId: string
   manualAttestations: Record<string, boolean>
+  authError?: string | null
   onSelectCampaign: (campaignId: string) => void
   onSelectSource: (sourceId: string) => void
   onSelectClip: (clipId: string) => void
@@ -110,6 +111,7 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
   selectedSourceId,
   selectedClipId,
   manualAttestations,
+  authError,
   onSelectCampaign,
   onSelectSource,
   onSelectClip,
@@ -176,6 +178,10 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
   // Backend Integration State (Sprint 1 Real Engine)
   const [backendHealth, setBackendHealth] = useState<BackendHealth | null>(null)
   const [engineMode, setEngineMode] = useState<"live" | "demo">("live")
+  const [isSessionVerified, setIsSessionVerified] = useState(false)
+  const [readinessError, setReadinessError] = useState<string | null>(
+    authError || null,
+  )
   const [activeRenderJob, setActiveRenderJob] =
     useState<BackendRenderJobStatus | null>(null)
   const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null)
@@ -187,23 +193,36 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
   const [isUploading, setIsUploading] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
 
-  // Probe backend on mount
-  useEffect(() => {
-    let active = true
-    argonApiClient.checkHealth().then((health) => {
-      if (active) {
-        setBackendHealth(health)
-        if (health && health.status === "operational") {
-          setEngineMode("live")
-        } else {
-          setEngineMode("demo")
-        }
+  // Probe backend and verify authenticated session on mount and workspace change
+  const verifyOperationalStatus = useCallback(async () => {
+    try {
+      const res = await argonApiClient.checkOperationalReadiness()
+      setBackendHealth(res.backendHealth)
+      if (res.ready && res.session) {
+        setIsSessionVerified(true)
+        setReadinessError(null)
+      } else {
+        setIsSessionVerified(false)
+        setReadinessError(
+          res.errorMessage || "Backend or workspace session not ready",
+        )
       }
-    })
-    return () => {
-      active = false
+    } catch (err: any) {
+      setIsSessionVerified(false)
+      setReadinessError(err.message || "Failed to reach backend")
     }
   }, [])
+
+  useEffect(() => {
+    if (authError) {
+      setReadinessError(authError)
+      setIsSessionVerified(false)
+    }
+  }, [authError])
+
+  useEffect(() => {
+    verifyOperationalStatus()
+  }, [verifyOperationalStatus])
 
   // New source modal fields
   const [newSourceTitle, setNewSourceTitle] = useState("")
@@ -600,9 +619,7 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
       campaignId: activeCampaign.id,
       title: `${newSourceTitle.trim()} (Fictional Demo)`,
       creatorName: newSourceCreator.trim() || activeCampaign.sponsorName,
-      sourceUrl:
-        newSourceUrl.trim() ||
-        "https://media.demo.argonhigh.internal/custom-authorized-feed.mp4",
+      sourceUrl: newSourceUrl.trim(),
       authorizationProof:
         newSourceAuth.trim() || "AUTH-OPERATOR-ATTESTED-2025 (Demo License)",
     })
@@ -714,6 +731,26 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
 
   return (
     <div className="flex flex-col gap-3">
+      {/* Live Operational Warning Banner if session or workspace is not verified */}
+      {engineMode === "live" && !isSessionVerified && readinessError && (
+        <div className="flex items-center justify-between rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-2.5 text-xs text-amber-300 shadow-xs">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+            <div>
+              <span className="font-bold">Live Operational Notice: </span>
+              <span>{readinessError}</span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => verifyOperationalStatus()}
+            className="rounded bg-amber-500/20 px-2.5 py-1 text-[11px] font-bold text-amber-200 transition hover:bg-amber-500/30"
+          >
+            Retry Authorization
+          </button>
+        </div>
+      )}
+
       {/* Studio Top Command Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-vibe-border-ui bg-vibe-bg-surface px-4 py-3 vibe-shadow-sm">
         <div className="flex flex-wrap items-center gap-3">
@@ -793,19 +830,34 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
           <div className="flex items-center rounded-md border border-vibe-border-ui bg-vibe-bg-grey p-0.5 text-xs">
             <button
               type="button"
-              onClick={() => setEngineMode("live")}
+              onClick={() => {
+                setEngineMode("live")
+                verifyOperationalStatus()
+              }}
               className={`rounded px-2 py-0.5 font-mono text-[10px] font-bold transition ${
                 engineMode === "live"
-                  ? "bg-vibe-primary text-white shadow-xs"
-                  : "text-vibe-text-secondary hover:text-vibe-text-primary"
+                  ? isSessionVerified
+                    ? "bg-vibe-primary text-white shadow-xs"
+                    : "bg-amber-600 text-white shadow-xs"
+                  : readinessError
+                    ? "text-amber-400 hover:bg-amber-500/10"
+                    : "text-vibe-text-secondary hover:text-vibe-text-primary"
               }`}
               title={
-                backendHealth
-                  ? "FastAPI & FFmpeg engine active"
-                  : "Click to reconnect"
+                isSessionVerified
+                  ? "FastAPI, FFmpeg & authenticated session verified"
+                  : readinessError || "Click to reconnect and verify session"
               }
             >
-              ⚡ {backendHealth ? "LIVE FFMPEG" : "LIVE (OFFLINE)"}
+              {isSessionVerified
+                ? "⚡ LIVE FFMPEG (VERIFIED)"
+                : readinessError
+                  ? readinessError.includes("403")
+                    ? "⚠️ LIVE (403 FORBIDDEN)"
+                    : readinessError.includes("401")
+                      ? "⚠️ LIVE (401 UNAUTHORIZED)"
+                      : "⚠️ LIVE (OFFLINE)"
+                  : "⚡ LIVE FFMPEG"}
             </button>
             <button
               type="button"
@@ -953,7 +1005,7 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
                   {dur}s
                 </span>
                 <span className="rounded bg-vibe-positive px-1.5 py-0.2 font-mono text-[10px] font-bold text-white">
-                  {cand.hookScore}
+                  {cand.hookScore ? cand.hookScore : "--"}
                 </span>
               </button>
             )
@@ -1139,7 +1191,16 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
 
             {/* Timestamped Diarized Transcript List */}
             <div className="max-h-[430px] flex-1 space-y-2 overflow-y-auto p-3">
-              {filteredTranscript.length === 0 ? (
+              {!activeSource.transcript || activeSource.transcript.length === 0 ? (
+                <div className="py-8 text-center text-xs text-vibe-text-secondary">
+                  <div className="font-semibold text-vibe-text-primary">
+                    No Speech Transcript Available
+                  </div>
+                  <div className="mt-1">
+                    Click "⚡ AI Transcribe & Rank" above to invoke faster-whisper and acoustic analysis on this source.
+                  </div>
+                </div>
+              ) : filteredTranscript.length === 0 ? (
                 <div className="py-8 text-center text-xs text-vibe-text-secondary">
                   <div>No transcript segments match "{transcriptQuery}".</div>
                   <button
@@ -1781,7 +1842,7 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
                             </span>
                           </div>
                           <span className="shrink-0 rounded bg-vibe-positive px-2 py-0.5 font-mono text-xs font-bold text-white tabular-nums">
-                            {candidate.hookScore}
+                            {candidate.hookScore ? candidate.hookScore : "--"}
                           </span>
                         </div>
 
@@ -1811,7 +1872,10 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
                       Explainable Hook Intelligence
                     </span>
                     <span className="font-mono text-xs font-bold text-vibe-text-primary tabular-nums">
-                      Composite: {activeClip.hookScore}/99
+                      Composite:{" "}
+                      {activeClip.hookScore
+                        ? `${activeClip.hookScore}/99`
+                        : "Pending Analysis"}
                     </span>
                   </div>
 
@@ -2507,7 +2571,7 @@ export const ClipStudioView: React.FC<ClipStudioProps> = ({
                   type="text"
                   value={newSourceUrl}
                   onChange={(e) => setNewSourceUrl(e.target.value)}
-                  placeholder="https://media.demo.argonhigh.internal/source-master-4k.mp4"
+                  placeholder="https://authorized-cdn.internal/source-master-4k.mp4"
                   className="mt-1 w-full rounded border border-vibe-border-ui bg-vibe-bg-surface px-3 py-2 font-mono text-xs text-vibe-text-primary focus:border-vibe-primary focus:outline-none"
                 />
               </div>

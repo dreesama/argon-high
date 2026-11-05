@@ -3,7 +3,7 @@ import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends, Header, Query, status
 from fastapi.responses import FileResponse
 from ...core.config import settings
@@ -176,6 +176,58 @@ async def upload_source_video(
 
     logger.info(f"Source asset {source_asset_id} uploaded and inspected successfully: {total_bytes} bytes, {inspection.duration_sec}s")
     return response
+
+@router.get("", response_model=List[MediaUploadResponse])
+async def list_source_assets(
+    campaign_id: Optional[str] = None,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+):
+    """
+    Lists authorized source assets belonging to the authenticated workspace.
+    Enforces tenant isolation by workspace_id.
+    """
+    conn = db_manager.get_connection()
+    if campaign_id:
+        rows = conn.execute("""
+            SELECT id, workspace_id, campaign_id, title, filename, file_size_bytes,
+                   duration_sec, resolution, fps, audio_lufs, authorization_proof, inspection_json, created_at_iso
+            FROM source_assets
+            WHERE workspace_id = ? AND campaign_id = ?
+            ORDER BY created_at_iso DESC;
+        """, (current_user.workspace_id, campaign_id)).fetchall()
+    else:
+        rows = conn.execute("""
+            SELECT id, workspace_id, campaign_id, title, filename, file_size_bytes,
+                   duration_sec, resolution, fps, audio_lufs, authorization_proof, inspection_json, created_at_iso
+            FROM source_assets
+            WHERE workspace_id = ?
+            ORDER BY created_at_iso DESC;
+        """, (current_user.workspace_id,)).fetchall()
+    conn.close()
+
+    results = []
+    for r in rows:
+        insp = None
+        if r["inspection_json"]:
+            try:
+                insp = MediaInspectionResult.model_validate_json(r["inspection_json"])
+            except Exception:
+                pass
+        results.append(MediaUploadResponse(
+            source_asset_id=r["id"],
+            workspace_id=r["workspace_id"],
+            campaign_id=r["campaign_id"],
+            title=r["title"],
+            filename=r["filename"],
+            file_size_bytes=r["file_size_bytes"],
+            duration_sec=r["duration_sec"],
+            resolution=r["resolution"],
+            fps=r["fps"],
+            audio_lufs=r["audio_lufs"],
+            inspection=insp or MediaInspectionResult(duration_sec=r["duration_sec"], file_size_bytes=r["file_size_bytes"], container_format="mp4"),
+            authorization_proof=r["authorization_proof"],
+        ))
+    return results
 
 @router.get("/{source_id}/inspect", response_model=MediaInspectionResult)
 async def inspect_source(

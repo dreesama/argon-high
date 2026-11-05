@@ -26,6 +26,8 @@ backend/storage/rendered/
 backend/storage/backups/
 backend/storage/whisper_models/
 *.mp4
+test-results/
+playwright-report/
 
 # Platform-managed agentplat state, not project source. In the
 # client-initiated single-repo workspace layout (make's `Path: "."` spec) the
