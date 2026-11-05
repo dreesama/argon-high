@@ -19,6 +19,7 @@ class CampaignBriefIngestRequest(BaseModel):
     sponsor_name: str = Field(..., min_length=2)
     brief_text: str = Field(..., min_length=10)
     workspace_id: str = "ws-argon-core"
+    is_synthetic: bool = False
 
 class CampaignRuleUpdateRequest(BaseModel):
     value: Any
@@ -46,5 +47,6 @@ class CampaignRecord(BaseModel):
     deadline_iso: Optional[str] = None
     licensing_terms: Optional[str] = None
     unknown_fields: List[str] = Field(default_factory=list)
+    is_synthetic: bool = False
     created_at_iso: str
     updated_at_iso: str

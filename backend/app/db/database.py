@@ -84,6 +84,7 @@ class DatabaseManager:
                 cpm_usd REAL,
                 licensing_terms TEXT,
                 unknown_fields_json TEXT NOT NULL DEFAULT '[]',
+                is_synthetic INTEGER NOT NULL DEFAULT 0,
                 created_at_iso TEXT NOT NULL,
                 updated_at_iso TEXT NOT NULL,
                 FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
@@ -277,8 +278,12 @@ class DatabaseManager:
             );
             """)
 
-            # Dynamic column migrations for existing performance_snapshots table
+            # Dynamic column migrations for existing tables
             try:
+                camp_cols = {r["name"] for r in cursor.execute("PRAGMA table_info(campaigns);").fetchall()}
+                if "is_synthetic" not in camp_cols:
+                    cursor.execute("ALTER TABLE campaigns ADD COLUMN is_synthetic INTEGER NOT NULL DEFAULT 0;")
+
                 col_rows = cursor.execute("PRAGMA table_info(performance_snapshots);").fetchall()
                 existing_cols = {r["name"] for r in col_rows}
                 if "reported_revenue_usd" not in existing_cols:

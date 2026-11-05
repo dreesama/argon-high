@@ -28,12 +28,17 @@ async def ingest_campaign_brief(
 
 @router.get("", response_model=List[CampaignRecord])
 async def list_campaigns(
+    include_synthetic: bool = False,
     current_user: AuthenticatedUser = Depends(get_current_user),
 ):
     """
     Lists campaigns belonging to the authenticated operator's workspace.
+    Separates actual advertiser campaigns from synthetic test fixtures by default.
     """
-    return campaign_service.list_campaigns(workspace_id=current_user.workspace_id)
+    return campaign_service.list_campaigns(
+        workspace_id=current_user.workspace_id,
+        include_synthetic=include_synthetic,
+    )
 
 @router.get("/{campaign_id}", response_model=CampaignRecord)
 async def get_campaign(

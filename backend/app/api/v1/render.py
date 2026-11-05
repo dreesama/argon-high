@@ -22,45 +22,84 @@ def _verify_job_access(
     authorization: Optional[str],
     user_workspace_id: Optional[str] = None,
 ):
-    # Enforce workspace isolation if caller is authenticated with a tenant workspace
-    if user_workspace_id and job.workspace_id and user_workspace_id != job.workspace_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Forbidden: Access denied to tenant workspace '{job.workspace_id}'.",
-        )
+    """
+    Strict render media authorization check.
+    Rejects forged or unverified bearer headers, invalid access tokens, and cross-workspace access.
+    """
+    # 1. If query token is provided, evaluate token authentication first
+    if token:
+        # Check signed job download token
+        if token == job.download_token:
+            if job.token_expires_at_iso:
+                try:
+                    exp_time = datetime.fromisoformat(job.token_expires_at_iso)
+                    if datetime.now(timezone.utc) > exp_time:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN,
+                            detail="Forbidden: Media access token has expired.",
+                        )
+                except (ValueError, TypeError):
+                    pass
 
-    # Check token expiration if token matches job download token
-    if token and token == job.download_token and job.token_expires_at_iso:
-        try:
-            exp_time = datetime.fromisoformat(job.token_expires_at_iso)
-            if datetime.now(timezone.utc) > exp_time:
+            if user_workspace_id and job.workspace_id and user_workspace_id != job.workspace_id:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Forbidden: Media access token has expired.",
+                    detail=f"Forbidden: Access denied to tenant workspace '{job.workspace_id}'.",
                 )
-        except (ValueError, TypeError):
-            pass
+            return True
 
-    # Valid if token matches the job's generated download token or known master key
-    if token and (token == job.download_token or token in [settings.DEFAULT_API_KEY, "test-valid-token", "argon-dev-token"]):
-        return True
+        # Check if token is a registered user API token
+        user_record = db_manager.get_user_by_token(token)
+        if user_record:
+            user_workspaces = [m["id"] for m in db_manager.get_user_workspaces(user_record["id"])]
+            if job.workspace_id and job.workspace_id not in user_workspaces:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=f"Forbidden: Access denied to job in workspace '{job.workspace_id}'. Cross-workspace access rejected.",
+                )
+            return True
 
-    # Valid if authorization bearer header is present
-    if authorization and ("bearer " in authorization.lower()):
-        return True
-
-    if token and token != job.download_token:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Forbidden: Invalid media access token.",
         )
 
-    if settings.ENVIRONMENT != "development":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: Access token or bearer credentials required.",
-        )
-    return True
+    # 2. Bearer Header Authentication Check (when no query token is passed)
+    if authorization:
+        parts = authorization.strip().split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            bearer_token = parts[1]
+        elif len(parts) == 1 and not parts[0].lower().startswith("bearer"):
+            bearer_token = parts[0]
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authorization header format. Use 'Bearer <token>'",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        user_record = db_manager.get_user_by_token(bearer_token)
+        if not user_record:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Unauthorized: Invalid or expired bearer token.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        user_workspaces = [m["id"] for m in db_manager.get_user_workspaces(user_record["id"])]
+        if job.workspace_id and job.workspace_id not in user_workspaces:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: Access denied to job in workspace '{job.workspace_id}'. Cross-workspace access rejected.",
+            )
+        return True
+
+    # 3. Unauthenticated requests are strictly rejected
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Unauthorized: Valid access token or bearer credentials required.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
 @router.post("/jobs", response_model=RenderJobStatus, status_code=status.HTTP_202_ACCEPTED)
 async def create_render_job(

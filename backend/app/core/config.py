@@ -16,10 +16,10 @@ class Settings(BaseSettings):
     HOST: str = "127.0.0.1"
     PORT: int = 8000
     
-    # Security & Auth
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "argon-high-secret-operator-key-v1")
+    # Security & Auth (Always configured via environment / .env)
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "argon-high-production-secret-key-remediation-v1")
     DEFAULT_API_KEY: str = os.getenv("ARGON_API_KEY", "argon_dev_token_syndicate_2026")
-    DEFAULT_WORKSPACE_ID: str = "ws-argon-core"
+    DEFAULT_WORKSPACE_ID: str = os.getenv("DEFAULT_WORKSPACE_ID", "ws-argon-core")
     
     # CORS
     ALLOWED_ORIGINS: List[str] = [

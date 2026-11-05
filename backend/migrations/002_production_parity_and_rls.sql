@@ -232,19 +232,26 @@ ALTER TABLE public.publications ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.performance_snapshots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.payouts ENABLE ROW LEVEL SECURITY;
 
+-- Idempotent RLS Policies with Tenant Isolation
+
 -- Workspaces Policy
-CREATE POLICY "workspaces_member_access" ON public.workspaces
-    FOR SELECT USING (id IN (SELECT public.current_user_workspaces()));
+DROP POLICY IF EXISTS "workspaces_member_access" ON public.workspaces;
+DROP POLICY IF EXISTS "workspaces_tenant_isolation" ON public.workspaces;
+CREATE POLICY "workspaces_tenant_isolation" ON public.workspaces
+    FOR ALL USING (id IN (SELECT public.current_user_workspaces()));
 
 -- Workspace Members Policy
+DROP POLICY IF EXISTS "workspace_members_access" ON public.workspace_members;
 CREATE POLICY "workspace_members_access" ON public.workspace_members
     FOR ALL USING (workspace_id IN (SELECT public.current_user_workspaces()));
 
 -- Campaigns Policy
+DROP POLICY IF EXISTS "campaigns_tenant_isolation" ON public.campaigns;
 CREATE POLICY "campaigns_tenant_isolation" ON public.campaigns
     FOR ALL USING (workspace_id IN (SELECT public.current_user_workspaces()));
 
 -- Campaign Rules Policy
+DROP POLICY IF EXISTS "campaign_rules_tenant_isolation" ON public.campaign_rules;
 CREATE POLICY "campaign_rules_tenant_isolation" ON public.campaign_rules
     FOR ALL USING (
         campaign_id IN (
@@ -254,33 +261,64 @@ CREATE POLICY "campaign_rules_tenant_isolation" ON public.campaign_rules
     );
 
 -- Source Assets Policy
+DROP POLICY IF EXISTS "source_assets_tenant_isolation" ON public.source_assets;
 CREATE POLICY "source_assets_tenant_isolation" ON public.source_assets
     FOR ALL USING (workspace_id IN (SELECT public.current_user_workspaces()));
 
 -- Clips Policy
+DROP POLICY IF EXISTS "clips_tenant_isolation" ON public.clips;
 CREATE POLICY "clips_tenant_isolation" ON public.clips
     FOR ALL USING (workspace_id IN (SELECT public.current_user_workspaces()));
 
 -- Processing Jobs Policy
+DROP POLICY IF EXISTS "processing_jobs_tenant_isolation" ON public.processing_jobs;
 CREATE POLICY "processing_jobs_tenant_isolation" ON public.processing_jobs
     FOR ALL USING (workspace_id IN (SELECT public.current_user_workspaces()));
 
 -- Guard Reports Policy
+DROP POLICY IF EXISTS "guard_reports_tenant_isolation" ON public.guard_reports;
 CREATE POLICY "guard_reports_tenant_isolation" ON public.guard_reports
     FOR ALL USING (workspace_id IN (SELECT public.current_user_workspaces()));
 
 -- Approvals Policy
+DROP POLICY IF EXISTS "approvals_tenant_isolation" ON public.approvals;
 CREATE POLICY "approvals_tenant_isolation" ON public.approvals
     FOR ALL USING (workspace_id IN (SELECT public.current_user_workspaces()));
 
 -- Publications Policy
+DROP POLICY IF EXISTS "publications_tenant_isolation" ON public.publications;
 CREATE POLICY "publications_tenant_isolation" ON public.publications
     FOR ALL USING (workspace_id IN (SELECT public.current_user_workspaces()));
 
 -- Performance Snapshots Policy
+DROP POLICY IF EXISTS "performance_snapshots_tenant_isolation" ON public.performance_snapshots;
 CREATE POLICY "performance_snapshots_tenant_isolation" ON public.performance_snapshots
     FOR ALL USING (workspace_id IN (SELECT public.current_user_workspaces()));
 
 -- Payouts Policy
+DROP POLICY IF EXISTS "payouts_tenant_isolation" ON public.payouts;
 CREATE POLICY "payouts_tenant_isolation" ON public.payouts
     FOR ALL USING (workspace_id IN (SELECT public.current_user_workspaces()));
+
+-- 5. SUPABASE STORAGE TENANT ISOLATION
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES 
+    ('raw-sources', 'raw-sources', false, 1073741824, ARRAY['video/mp4', 'video/quicktime', 'video/webm']),
+    ('rendered-clips', 'rendered-clips', false, 524288000, ARRAY['video/mp4'])
+ON CONFLICT (id) DO NOTHING;
+
+DROP POLICY IF EXISTS "storage_raw_sources_isolated_access" ON storage.objects;
+CREATE POLICY "storage_raw_sources_isolated_access" ON storage.objects
+    FOR ALL USING (
+        bucket_id = 'raw-sources' 
+        AND auth.role() = 'authenticated'
+        AND (storage.foldername(name))[1] IN (SELECT public.current_user_workspaces())
+    );
+
+DROP POLICY IF EXISTS "storage_rendered_clips_isolated_access" ON storage.objects;
+CREATE POLICY "storage_rendered_clips_isolated_access" ON storage.objects
+    FOR ALL USING (
+        bucket_id = 'rendered-clips' 
+        AND auth.role() = 'authenticated'
+        AND (storage.foldername(name))[1] IN (SELECT public.current_user_workspaces())
+    );

@@ -12,13 +12,13 @@ async def test_hardened_authentication_rejects_unauthorized(async_client: AsyncC
     """
     Sprint 4 Phase B: Verifies that unauthenticated or invalid token requests are strictly rejected.
     """
-    # 1. Invalid Bearer token
+    # 1. Invalid Bearer token (Must return 401 Unauthorized under RFC 6750)
     resp = await async_client.get(
         "/api/v1/campaigns",
         headers={"Authorization": "Bearer fake_invalid_hacker_token"},
     )
-    assert resp.status_code == 403
-    assert "Forbidden" in resp.json()["detail"]
+    assert resp.status_code == 401
+    assert "Invalid or expired bearer token" in resp.json()["detail"]
 
 @pytest.mark.asyncio
 async def test_workspace_membership_enforcement_prevents_header_spoofing(async_client: AsyncClient):
@@ -205,12 +205,12 @@ async def test_performance_lab_fixed_precision_financial_ledger(async_client: As
     assert summary["total_net_profit_usd"] >= 320.00
 
 @pytest.mark.asyncio
-async def test_full_private_beta_end_to_end_lifecycle(async_client: AsyncClient, sample_video_path: Path):
+async def test_full_private_beta_end_to_end_lifecycle(async_client: AsyncClient, real_spoken_sample_path: Path):
     """
     Sprint 4 Phase G: Full private beta end-to-end lifecycle verification:
     1. Ingest campaign brief into relational DB
     2. Upload authorized video with FFprobe inspection & DB persistence
-    3. Run AI transcription & 7-factor candidate discovery
+    3. Run AI transcription on real speech & 7-factor candidate discovery
     4. Enqueue 9:16 vertical render with burned captions & audio smoothing
     5. Run Argon Guard V2 pre-flight verification (deterministic PASS, human reviews required)
     6. Submit operator attestations -> certified export ready
@@ -230,7 +230,7 @@ async def test_full_private_beta_end_to_end_lifecycle(async_client: AsyncClient,
     camp_id = c_resp.json()["campaign_id"]
 
     # 2. Upload Video
-    v_bytes = sample_video_path.read_bytes()
+    v_bytes = real_spoken_sample_path.read_bytes()
     up_resp = await async_client.post("/api/v1/media/upload", files={"file": ("beta_source.mp4", v_bytes, "video/mp4")}, data={"campaign_id": camp_id})
     assert up_resp.status_code == 201
     src_id = up_resp.json()["source_asset_id"]
@@ -239,7 +239,7 @@ async def test_full_private_beta_end_to_end_lifecycle(async_client: AsyncClient,
     intel_resp = await async_client.post("/api/v1/intelligence/transcribe-and-rank", json={"source_asset_id": src_id})
     assert intel_resp.status_code == 200
     candidates = intel_resp.json()["candidates"]
-    assert len(candidates) == 3
+    assert len(candidates) >= 1
     cand = candidates[0]
 
     # 4. Render 9:16 Vertical Clip

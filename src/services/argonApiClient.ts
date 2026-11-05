@@ -267,12 +267,35 @@ export interface BackendCreativeQAReport {
 }
 
 export class ArgonApiClient {
-  private token: string = 'argon_dev_token_syndicate_2026';
+  private token: string = typeof window !== 'undefined' 
+    ? (localStorage.getItem('argon_api_token') || (import.meta.env.VITE_ARGON_API_KEY as string) || 'argon_dev_token_syndicate_2026')
+    : ((import.meta.env.VITE_ARGON_API_KEY as string) || 'argon_dev_token_syndicate_2026');
+  private workspaceId: string = typeof window !== 'undefined'
+    ? (localStorage.getItem('argon_workspace_id') || 'ws-argon-core')
+    : 'ws-argon-core';
+
+  public setToken(token: string): void {
+    this.token = token;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('argon_api_token', token);
+    }
+  }
+
+  public setWorkspaceId(wsId: string): void {
+    this.workspaceId = wsId;
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('argon_workspace_id', wsId);
+    }
+  }
+
+  public getToken(): string {
+    return this.token;
+  }
 
   private getHeaders(): HeadersInit {
     return {
       Authorization: `Bearer ${this.token}`,
-      'X-Workspace-Id': 'ws-argon-core',
+      'X-Workspace-Id': this.workspaceId,
     };
   }
 

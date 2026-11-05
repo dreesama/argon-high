@@ -84,5 +84,12 @@ $syn.Dispose()
 @pytest.fixture
 async def async_client():
     transport = ASGITransport(app=app)
+    headers = {"Authorization": f"Bearer {settings.DEFAULT_API_KEY}"}
+    async with AsyncClient(transport=transport, base_url="http://testserver", headers=headers) as client:
+        yield client
+
+@pytest.fixture
+async def unauthenticated_async_client():
+    transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         yield client

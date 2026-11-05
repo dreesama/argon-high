@@ -224,27 +224,47 @@ async def stream_source_video(
 ):
     """
     Serves the source video file for authorized browser playback.
-    Enforces authentication & workspace authorization to protect private media.
+    Strictly enforces authentication & workspace authorization to protect private media.
+    Zero unauthenticated access or hard-coded token bypasses.
     """
-    # 1. Resolve user / token credentials
-    auth_user = None
-    try:
+    # 1. Resolve user / token credentials strictly
+    auth_user: Optional[AuthenticatedUser] = None
+    if authorization:
         auth_user = await get_current_user(authorization=authorization, x_workspace_id=x_workspace_id)
-    except HTTPException:
-        # Check if valid query token
-        if token and token in [settings.DEFAULT_API_KEY, "test-valid-token", "argon-dev-token"]:
-            auth_user = AuthenticatedUser(
-                user_id="usr-token",
-                workspace_id=settings.DEFAULT_WORKSPACE_ID,
-                role="operator",
-                authorized_workspaces=[settings.DEFAULT_WORKSPACE_ID, "ws-argon-core", "ws-syndicate-beta", "ws-partner-meridian"],
-            )
-        elif settings.ENVIRONMENT != "development":
+    elif token:
+        user_record = db_manager.get_user_by_token(token)
+        if not user_record:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Unauthorized: Access token or bearer credentials required to stream private media.",
+                detail="Unauthorized: Invalid or expired access token.",
+                headers={"WWW-Authenticate": "Bearer"},
             )
+        user_id = user_record["id"]
+        memberships = db_manager.get_user_workspaces(user_id)
+        if not memberships:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Forbidden: User '{user_id}' has no verified workspace memberships.",
+            )
+        authorized_ws = [m["id"] for m in memberships]
+        eff_ws = x_workspace_id if (x_workspace_id and x_workspace_id in authorized_ws) else authorized_ws[0]
+        eff_role = next((m.get("role", "operator") for m in memberships if m["id"] == eff_ws), "operator")
+        auth_user = AuthenticatedUser(
+            user_id=user_id,
+            workspace_id=eff_ws,
+            role=eff_role,
+            email=user_record.get("email"),
+            authorized_workspaces=authorized_ws,
+            permissions=[eff_role],
+        )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized: Access token or bearer credentials required to stream private media.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
+    # 2. Locate Source Asset & Determine Workspace Ownership
     owner_ws = None
     if source_id in SOURCE_REGISTRY:
         owner_ws = SOURCE_REGISTRY[source_id]["response"].workspace_id
@@ -262,10 +282,11 @@ async def stream_source_video(
                 raise HTTPException(status_code=404, detail="Source media not found")
             file_path = matches[0]
 
-    if auth_user and owner_ws and owner_ws not in auth_user.authorized_workspaces:
+    # 3. Enforce Strict Workspace Isolation
+    if owner_ws and owner_ws not in auth_user.authorized_workspaces:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Forbidden: Access denied to source asset in workspace '{owner_ws}'.",
+            detail=f"Forbidden: Access denied to source asset in workspace '{owner_ws}'. Cross-workspace access rejected.",
         )
 
     return FileResponse(path=file_path, media_type="video/mp4")

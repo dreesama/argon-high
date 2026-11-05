@@ -58,10 +58,13 @@ class TranscriptionService:
         source_asset_id: str,
         media_path: Path,
         sponsor_name: str = "Argon High Partner",
+        allow_synthetic_fallback: bool = False,
     ) -> TranscriptionAnalysisResponse:
         """
-        Extracts speech audio, runs neural speech recognition (or acoustic segmentation),
+        Extracts speech audio, runs neural speech recognition,
         extracts word-level timestamps, and executes the 7-factor clip discovery algorithm.
+        In Live mode (allow_synthetic_fallback=False), returns an explicit no-speech / zero-candidate
+        result when no spoken speech is detected rather than fabricating synthetic transcripts.
         """
         if not media_path.exists():
             raise FileNotFoundError(f"Media file does not exist: {media_path}")
@@ -82,7 +85,7 @@ class TranscriptionService:
         model = self._get_whisper_model()
         segments: List[TranscriptSegmentSchema] = []
         is_real_ai = False
-        silence_ratio = 5.0
+        silence_ratio = 100.0
 
         if model is not None and temp_audio_path is not None and temp_audio_path.exists():
             try:
@@ -140,7 +143,7 @@ class TranscriptionService:
                         )
                     )
 
-                if duration_sec > 0:
+                if duration_sec > 0 and total_speech_duration > 0:
                     silence_ratio = round(max(0.0, (duration_sec - total_speech_duration) / duration_sec * 100), 1)
 
                 is_real_ai = len(segments) > 0
@@ -148,13 +151,19 @@ class TranscriptionService:
             except Exception as e:
                 logger.error(f"Whisper inference error: {e}", exc_info=True)
 
-        # 4. Fallback if audio track contains no words or whisper was unavailable
+        # 4. Strict Live Mode: Do NOT synthesize fake sentences when no speech is detected
         if not segments:
-            logger.info("Generating acoustic-aligned baseline transcript segments.")
-            segments = self._generate_acoustic_aligned_segments(source_asset_id, duration_sec, sponsor_name)
+            if allow_synthetic_fallback:
+                logger.info("Generating acoustic-aligned baseline transcript segments (explicitly requested test fallback).")
+                segments = self._generate_acoustic_aligned_segments(source_asset_id, duration_sec, sponsor_name)
+            else:
+                logger.warning(f"No spoken speech detected in {media_path.name}. Live mode returning explicit no-speech result.")
+                segments = []
 
-        # 5. Execute 7-Factor Intelligent Clip Discovery with sentence boundary snapping
-        candidates = self._discover_candidates_seven_factor(duration_sec, segments, sponsor_name)
+        # 5. Execute 7-Factor Intelligent Clip Discovery only if real segments exist
+        candidates: List[CandidateTimestampRange] = []
+        if segments:
+            candidates = self._discover_candidates_seven_factor(duration_sec, segments, sponsor_name)
 
         # Cleanup temporary audio
         if temp_audio_path and temp_audio_path.exists():
@@ -169,12 +178,12 @@ class TranscriptionService:
             total_segments=len(segments),
             duration_sec=duration_sec,
             candidates=candidates,
-            detected_language="en",
-            acoustic_energy_average=82.5,
-            model_name="faster-whisper-tiny-en" if is_real_ai else "acoustic-energy-synthesizer",
+            detected_language="en" if is_real_ai else "none",
+            acoustic_energy_average=82.5 if is_real_ai else 0.0,
+            model_name="faster-whisper-tiny-en" if is_real_ai else ("acoustic-energy-synthesizer" if segments else "no-speech-detected"),
             is_real_ai_inference=is_real_ai,
             silence_ratio_pct=silence_ratio,
-            diarization_status="Single-speaker model (multi-speaker PyAnnote token optional in enterprise tier)",
+            diarization_status="Single-speaker model (multi-speaker PyAnnote token optional in enterprise tier)" if is_real_ai else "No speech detected in audio stream (silence or non-vocal audio)",
         )
 
     def _discover_candidates_seven_factor(

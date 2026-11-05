@@ -78,6 +78,7 @@ class CampaignService:
                             cpm_usd=r["cpm_usd"],
                             licensing_terms=r["licensing_terms"],
                             unknown_fields=json.loads(r["unknown_fields_json"]),
+                            is_synthetic=bool(r["is_synthetic"]) if "is_synthetic" in r.keys() else False,
                             created_at_iso=r["created_at_iso"],
                             updated_at_iso=r["updated_at_iso"],
                         )
@@ -360,6 +361,7 @@ class CampaignService:
             deadline_iso=None,
             licensing_terms=fields.get("licensing_terms"),
             unknown_fields=unknowns,
+            is_synthetic=req.is_synthetic,
             created_at_iso=now,
             updated_at_iso=now,
         )
@@ -377,8 +379,8 @@ class CampaignService:
                 eligible_platforms_json, min_duration_sec, max_duration_sec,
                 required_hashtags_json, required_mentions_json, required_disclosures_json,
                 prohibited_topics_json, payout_cap_usd, cpm_usd, licensing_terms,
-                unknown_fields_json, created_at_iso, updated_at_iso
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                unknown_fields_json, is_synthetic, created_at_iso, updated_at_iso
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """, (
                 cid, req.workspace_id, req.title, req.sponsor_name, req.brief_text, 1,
                 json.dumps(fields.get("eligible_platforms", [])),
@@ -388,7 +390,7 @@ class CampaignService:
                 json.dumps(fields.get("required_disclosures", [])),
                 json.dumps(fields.get("prohibited_topics", [])),
                 fields.get("payout_cap_usd"), fields.get("cpm_usd"), fields.get("licensing_terms"),
-                json.dumps(unknowns), now, now,
+                json.dumps(unknowns), 1 if req.is_synthetic else 0, now, now,
             ))
             for r in rules:
                 conn.execute("""
@@ -405,7 +407,7 @@ class CampaignService:
         except Exception as db_err:
             logger.warning(f"Failed to sync campaign {cid} to SQLite: {db_err}")
 
-        logger.info(f"Ingested campaign brief '{req.title}' ({cid}) with {len(rules)} extracted rules and {len(unknowns)} unknown fields.")
+        logger.info(f"Ingested campaign brief '{req.title}' ({cid}, synthetic={req.is_synthetic}) with {len(rules)} extracted rules.")
         return record
 
     def get_campaign(self, campaign_id: str) -> Optional[CampaignRecord]:
@@ -414,11 +416,13 @@ class CampaignService:
                 self._load_from_disk()
             return self._campaigns.get(campaign_id)
 
-    def list_campaigns(self, workspace_id: Optional[str] = None) -> List[CampaignRecord]:
+    def list_campaigns(self, workspace_id: Optional[str] = None, include_synthetic: bool = False) -> List[CampaignRecord]:
         with self._lock:
             if len(self._campaigns) < 5:
                 self._load_from_disk()
             camps = list(self._campaigns.values())
+            if not include_synthetic:
+                camps = [c for c in camps if not c.is_synthetic]
             if workspace_id:
                 return [c for c in camps if c.workspace_id == workspace_id]
             return camps

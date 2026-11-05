@@ -232,22 +232,38 @@ Sprint 5 transitions Argon High into an operationally validated, revenue-ready p
 
 ---
 
+## 🔒 Security & Reliability Remediation (Verified)
+
+A comprehensive security, persistence, and reliability hardening sprint remediating all 10 priority findings:
+1. **Removed Hard-Coded Credentials & Fallbacks**: Removed all test-token bypasses (`test-valid-token`, `argon-dev-token`). Unauthenticated requests strictly return `401 Unauthorized` with `WWW-Authenticate: Bearer`.
+2. **Authenticated Sessions & Role-Based Permissions**: Real server-side membership validation against `users` and `workspace_members`. Role hierarchy (`owner`, `admin`, `operator`, `reviewer`, `viewer`) strictly enforced.
+3. **Invalid Bearer & Cross-Workspace Regression Tests**: Proven rejection of malformed or invalid Bearer tokens (401) and cross-workspace media access (403 Forbidden).
+4. **Supabase Storage Tenant Isolation**: Storage policies in `001_initial_schema.sql` and `002_production_parity_and_rls.sql` enforce `(storage.foldername(name))[1] IN (SELECT public.current_user_workspaces())`.
+5. **No Synthetic Transcripts in Live Mode**: Removed hallucinated speech generation ("Welcome back to Argon High Deep Dive..."). Non-speech or silent media returns explicit `no-speech` result (`total_segments=0`, `candidates=[]`).
+6. **Real Benchmark Measurements**: Replaced hardcoded accuracy and 18.5ms drift with genuine word alignment calculations, explicitly labelled `unavailable` when ground truth is absent.
+7. **Campaign Fixture Segregation**: Added `is_synthetic` column. Cleaned runtime persistence files so synthetic test fixtures never pollute production campaign queries.
+8. **Decimal Minor Units & Payout Evidence**: Refactored financial ledger to `decimal.Decimal` with `ROUND_HALF_UP` and strictly required `payment_voucher_code` evidence to claim received revenue.
+9. **GitHub Actions CI Pipeline**: Added `.github/workflows/ci.yml` running FFmpeg tests, pytest, Vite build, and Bandit security scans on every push and PR.
+
+---
+
 ## 🧪 Automated Testing
 
 Argon High includes comprehensive end-to-end unit, integration, and security tests verifying media analysis, FFmpeg vertical transformation, intelligence models, security controls, multi-tenancy, and financial operations:
 
 ```bash
-# Run the complete test suite (32 tests)
+# Run the complete test suite (41 tests)
 python -m pytest backend/tests -v
 ```
 
-### Verified Test Suite Results (32/32 Passed)
+### Verified Test Suite Results (41/41 Passed)
 - **Sprint 1 — Core Pipeline & Media Processing**:
   - `test_health_endpoint`: API and FFmpeg/FFprobe binary detection.
   - `test_upload_invalid_file_extension`: Rejection of unauthorized extensions.
   - `test_upload_corrupted_mp4`: Detection and rejection of invalid magic bytes.
   - `test_full_clipping_vertical_slice`: End-to-end upload -> inspect -> AI transcribe -> 3 candidates -> 1080x1920 vertical render -> tokenized preview/download.
   - `test_render_with_burned_captions_preset`: 9:16 vertical render with burned ASS captions (`kinetic-lime`).
+- **Sprint 2 & Media Pipeline**:
   - `test_ffprobe_inspect_valid_media`: Accurate stream, resolution, and FPS detection.
   - `test_transcription_and_three_candidates`: Speech transcription, 7-factor virality breakdown, and sentence snapping.
   - `test_subtitle_generation_presets`: ASS subtitle generation for all 3 caption presets with safe margins.
@@ -255,6 +271,16 @@ python -m pytest backend/tests -v
   - `test_ffmpeg_vertical_render_with_burned_captions`: Burning styled ASS subtitles onto 9:16 vertical output with audio smoothing.
   - `test_job_store_durability`: JSON job persistence and state recovery across server restarts.
   - `test_ffprobe_corrupted_file_rejection`: Unreadable media exception handling.
+- **Security & Reliability Remediation (Sprint Hardening)**:
+  - `test_remediation_unauthenticated_requests_strictly_rejected`: Missing Bearer header returns 401 Unauthorized across all endpoints.
+  - `test_remediation_invalid_bearer_headers_rejected`: Malformed or unknown Bearer tokens strictly rejected with 401.
+  - `test_remediation_cross_workspace_media_access_rejected`: Cross-tenant media inspection and streaming return 403 Forbidden.
+  - `test_remediation_render_media_authorization_and_isolation`: Render preview/download strictly validates token ownership and workspace isolation.
+  - `test_remediation_live_mode_rejects_synthetic_hallucination`: Live mode on non-speech audio yields 0 segments and 0 candidates without synthetic text.
+  - `test_remediation_benchmark_real_measurements_or_unavailable`: Scorecard metrics are measured from word timestamps or labelled unavailable.
+  - `test_remediation_campaign_synthetic_isolation`: Synthetic fixtures are flagged and excluded from live workspace listings.
+  - `test_remediation_financial_decimal_precision_and_evidence_requirement`: Decimal minor-unit calculations and strict voucher code requirement.
+  - `test_remediation_supabase_storage_tenant_isolation_in_sql_migrations`: Verified storage policies scope objects by tenant workspace prefix.
 - **Sprint 3 — Production Intelligence & Compliance**:
   - `test_campaign_brief_structured_ingestion`: Structured brief rule extraction, platforms, duration bounds, evidence quotes.
   - `test_campaign_rule_human_editing`: Human operator rule modification, verification status, and notes.
@@ -263,21 +289,21 @@ python -m pytest backend/tests -v
   - `test_creative_qa_awkward_cut_detection`: Awkward cut, excessive silence, and subtitle overflow detection.
   - `test_job_cancellation_and_workspace_isolation`: Job cancellation and cross-tenant workspace 403 authorization.
 - **Sprint 4 — Operations & Ledger**:
-  - `test_token_verification_and_unauthorized_access`: Bearer token and workspace membership verification.
-  - `test_sqlite_persistence_and_cache_eviction`: Database persistence across server memory restarts.
-  - `test_campaign_rule_persistence_and_verification`: Campaign rule updates persisted to SQLite.
-  - `test_guard_report_persistence`: Preflight compliance report storage and retrieval.
-  - `test_approval_flow_and_persistence`: Review Queue two-operator approvals.
-  - `test_publication_tracking_and_persistence`: Social platform URL logging and status updates.
-  - `test_performance_ledger_calculations_and_api`: Fixed-precision financial calculations and summary metrics.
-- **Sprint 5 — Operational Validation & First Revenue Pilot**:
-  - `test_resource_level_workspace_isolation`: Verifies that unauthorized cross-tenant requests to source inspection, media streaming, transcripts, creative QA, renders, guard reports, and campaign rules return `403 Forbidden`.
-  - `test_render_download_token_expiry_rejection`: Enforces strict expiration rejection on expired download tokens.
-  - `test_real_spoken_clip_quality_benchmark`: Executes benchmark pipeline on real spoken speech audio, evaluating transcription accuracy, hook scoring, narrative completeness, caption synchronization, visual framing, and compute duration.
-  - `test_five_production_campaigns_seeded_and_enforced`: Verifies 5 seeded campaigns with platform and duration bounds enforcement.
-  - `test_four_tier_revenue_ledger_and_na_hourly_yield`: Validates Estimated, Reported, Confirmed, and Received revenue tiers with explicit `"N/A"` display when production hours are zero/null.
-  - `test_payout_disbursement_voucher_workflow`: Verifies recording, validation, and listing of verified payout vouchers with bank reference codes.
-  - `test_database_backup_and_recovery_endpoint`: Executes hot SQLite online database backup and WAL checkpointing without thread locking.
+  - `test_hardened_authentication_rejects_unauthorized`: Bearer token and workspace membership verification.
+  - `test_workspace_membership_enforcement_prevents_header_spoofing`: Server-side lookup against SQLite workspace_members.
+  - `test_source_asset_relational_database_persistence`: Database persistence across server memory restarts.
+  - `test_review_queue_approval_workflow`: Review Queue two-operator approvals.
+  - `test_publication_url_recording`: Social platform URL logging and status updates.
+  - `test_performance_lab_fixed_precision_financial_ledger`: Fixed-precision financial calculations and summary metrics.
+  - `test_full_private_beta_end_to_end_lifecycle`: Complete private beta lifecycle from brief to render, guard, approval, and ledger.
+- **Sprint 5 — Pilot Operations**:
+  - `test_resource_level_workspace_isolation_across_endpoints`: Strict resource-level ownership across all endpoints.
+  - `test_token_expiration_blocks_media_download`: Expired download tokens return 403 Forbidden.
+  - `test_real_spoken_clip_quality_benchmark`: Benchmark pipeline evaluating genuine spoken English speech.
+  - `test_five_production_campaigns_seeded_and_enforced`: 5 seeded production campaigns with platform/duration constraints.
+  - `test_four_tier_revenue_ledger_and_zero_hour_na`: Estimated, Reported, Confirmed, and Received revenue tiers with explicit "N/A" hourly yield.
+  - `test_payout_voucher_recording_and_ledger`: Disbursement voucher creation and reference tracking.
+  - `test_atomic_database_backup`: Hot SQLite online database backup and WAL checkpointing.
 
 ---
 

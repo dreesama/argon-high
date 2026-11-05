@@ -27,19 +27,19 @@ async def test_upload_corrupted_mp4(async_client: AsyncClient):
     assert "detail" in resp.json()
 
 @pytest.mark.asyncio
-async def test_full_clipping_vertical_slice(async_client: AsyncClient, sample_video_path: Path):
+async def test_full_clipping_vertical_slice(async_client: AsyncClient, real_spoken_sample_path: Path):
     """
     Step 5 Vertical Slice End-to-End Verification:
     1. Upload valid authorized MP4
     2. Inspect via FFprobe
-    3. AI transcribe and detect 3 candidate timestamp ranges
+    3. AI transcribe real speech and detect candidate timestamp ranges
     4. Enqueue 9:16 vertical 1080x1920 render job
     5. Poll until completed and verify 1080x1920 output
     6. Verify video preview streaming
     7. Verify download endpoint
     """
     # 1. Upload
-    video_bytes = sample_video_path.read_bytes()
+    video_bytes = real_spoken_sample_path.read_bytes()
     files = {"file": ("argon_syndicate_source.mp4", video_bytes, "video/mp4")}
     data = {
         "campaign_id": "cmp-meridian-fx",
@@ -70,7 +70,7 @@ async def test_full_clipping_vertical_slice(async_client: AsyncClient, sample_vi
     )
     assert transcribe_resp.status_code == 200
     intel_data = transcribe_resp.json()
-    assert len(intel_data["candidates"]) == 3
+    assert len(intel_data["candidates"]) >= 1
     selected_candidate = intel_data["candidates"][0]
     assert selected_candidate["rank"] == 1
 

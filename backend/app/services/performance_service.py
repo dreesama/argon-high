@@ -1,7 +1,9 @@
 import uuid
 import json
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Dict, Any, Optional
+from fastapi import HTTPException, status
 
 from ..core.logging import logger
 from ..db.database import db_manager
@@ -100,50 +102,69 @@ class PerformanceService:
         snap_id = f"snp-{uuid.uuid4().hex[:10]}"
         now = datetime.now(timezone.utc).isoformat()
 
-        cpm = round(float(req.cpm_usd or 5.0), 2)
-        cap = round(float(req.payout_cap_usd or 1500.0), 2)
+        # Exact Decimal / Integer minor-unit arithmetic
+        cpm_dec = Decimal(str(req.cpm_usd or 5.0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        cap_dec = Decimal(str(req.payout_cap_usd or 1500.0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         # 1. Tier 1: Estimated Revenue (Projected from all impressions)
-        est_raw = (req.views_count / 1000.0) * cpm
-        est_rev = round(min(cap, est_raw), 2)
+        est_raw_dec = (Decimal(req.views_count) / Decimal(1000)) * cpm_dec
+        est_rev_dec = min(cap_dec, est_raw_dec).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         # 2. Tier 2: Operator-Reported Revenue (Dashboard claims before audit)
         rep_views = req.reported_views_count if req.reported_views_count is not None else req.views_count
-        rep_rev = round(min(cap, (rep_views / 1000.0) * cpm), 2)
+        rep_raw_dec = (Decimal(rep_views) / Decimal(1000)) * cpm_dec
+        rep_rev_dec = min(cap_dec, rep_raw_dec).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         # 3. Tier 3: Campaign-Confirmed Payable Revenue (Verified eligible views audited by sponsor)
         conf_views = req.confirmed_eligible_views_count if req.confirmed_eligible_views_count is not None else req.verified_views_count
         if req.reconciled or conf_views > 0:
-            conf_raw = (conf_views / 1000.0) * cpm
-            conf_payable = round(min(cap, conf_raw), 2)
+            conf_raw_dec = (Decimal(conf_views) / Decimal(1000)) * cpm_dec
+            conf_payable_dec = min(cap_dec, conf_raw_dec).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         else:
-            conf_payable = 0.0
+            conf_payable_dec = Decimal("0.00")
 
-        ver_payout = conf_payable
+        ver_payout_dec = conf_payable_dec
 
-        # 4. Tier 4: Actually Received Payments (Settled in escrow/bank with voucher receipt)
-        if req.actually_received_usd is not None:
-            act_received = round(float(req.actually_received_usd), 2)
-        elif req.reconciled:
-            act_received = ver_payout
+        # 4. Tier 4: Actually Received Revenue (Requires explicit evidence: voucher code / bank payment receipt)
+        if req.actually_received_usd is not None and req.actually_received_usd > 0.0:
+            if not req.payment_voucher_code or len(req.payment_voucher_code.strip()) < 3:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Unprocessable Entity: Explicit payment voucher code or bank disbursement reference is strictly required to recognize actually received payouts.",
+                )
+            act_received_dec = Decimal(str(req.actually_received_usd)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        elif req.reconciled and req.payment_voucher_code and len(req.payment_voucher_code.strip()) >= 3:
+            act_received_dec = ver_payout_dec
         else:
-            act_received = 0.0
+            act_received_dec = Decimal("0.00")
 
-        # Fixed Precision Net Profit = Verified Payout - Fees - Production Cost
-        fees = round(float(req.platform_fees_usd), 2)
-        cost = round(float(req.production_cost_usd), 2)
-        net_profit = round(ver_payout - fees - cost, 2)
+        # Decimal Net Profit = Verified Payout - Platform Fees - Production Cost
+        fees_dec = Decimal(str(req.platform_fees_usd)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        cost_dec = Decimal(str(req.production_cost_usd)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        net_profit_dec = (ver_payout_dec - fees_dec - cost_dec).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
         # Production Hours & Earnings Per Production Hour (Strict N/A when 0 or unavailable)
         if req.production_hours is not None and float(req.production_hours) > 0.0:
-            hours = round(float(req.production_hours), 2)
-            eph = round(net_profit / hours, 2)
-            eph_display = f"${eph:.2f}/hr"
+            hours_dec = Decimal(str(req.production_hours)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            eph_dec = (net_profit_dec / hours_dec).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            eph_display = f"${eph_dec:.2f}/hr"
+            eph = float(eph_dec)
+            hours = float(hours_dec)
         else:
             hours = 0.0
             eph = None
             eph_display = "N/A"
 
+        cpm = float(cpm_dec)
+        cap = float(cap_dec)
+        est_rev = float(est_rev_dec)
+        rep_rev = float(rep_rev_dec)
+        conf_payable = float(conf_payable_dec)
+        act_received = float(act_received_dec)
+        ver_payout = float(ver_payout_dec)
+        fees = float(fees_dec)
+        cost = float(cost_dec)
+        net_profit = float(net_profit_dec)
         eph_db_val = eph if eph is not None else 0.0
 
         conn = db_manager.get_connection()
@@ -321,14 +342,26 @@ class PerformanceService:
     # --- Payout Vouchers & Settlements ---
     def record_payout(self, req: PayoutCreateRequest, workspace_id: str) -> PayoutRecordResponse:
         pay_id = f"pay-{uuid.uuid4().hex[:10]}"
+
+        # Validate explicit reference evidence
+        if req.verification_state == "verified-paid":
+            if not req.reference_code or len(req.reference_code.strip()) < 3:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Unprocessable Entity: Explicit payment disbursement reference code or bank voucher identifier is required for verified-paid payouts.",
+                )
+
+        amount_dec = Decimal(str(req.amount_usd)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        cpm_dec = Decimal(str(req.effective_cpm_usd)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
         result = db_manager.record_payout(
             payout_id=pay_id,
             workspace_id=workspace_id,
             campaign_id=req.campaign_id,
-            amount_usd=req.amount_usd,
-            effective_cpm_usd=req.effective_cpm_usd,
+            amount_usd=float(amount_dec),
+            effective_cpm_usd=float(cpm_dec),
             verified_views_counted=req.verified_views_counted,
-            reference_code=req.reference_code,
+            reference_code=req.reference_code.strip(),
             verification_state=req.verification_state,
             clip_id=req.clip_id,
             publication_id=req.publication_id,

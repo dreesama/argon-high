@@ -197,6 +197,7 @@ async def test_four_tier_revenue_ledger_and_zero_hour_na(async_client: AsyncClie
         "platform_fees_usd": 15.00,
         "production_cost_usd": 25.00,
         "actually_received_usd": 330.00,
+        "payment_voucher_code": "VCH-MERIDIAN-2026-001",
         "reconciled": True,
         "notes": "Automated pipeline run - zero manual operator hours",
     }
@@ -233,6 +234,7 @@ async def test_four_tier_revenue_ledger_and_zero_hour_na(async_client: AsyncClie
         "platform_fees_usd": 15.00,
         "production_cost_usd": 25.00,
         "actually_received_usd": 330.00,
+        "payment_voucher_code": "VCH-MERIDIAN-2026-002",
         "reconciled": True,
         "notes": "Operator manual calibration (2.5h)",
     }

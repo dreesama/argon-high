@@ -358,13 +358,38 @@ VALUES
     ('rendered-clips', 'rendered-clips', false, 524288000, ARRAY['video/mp4'])
 ON CONFLICT (id) DO NOTHING;
 
--- Storage RLS: only authenticated workspace members can access their files
+-- Storage RLS: Strict workspace tenant isolation
+-- Files must be stored with workspace path prefix: <bucket_id>/<workspace_id>/<file>
+DROP POLICY IF EXISTS storage_raw_sources_access ON storage.objects;
 CREATE POLICY storage_raw_sources_access ON storage.objects
     FOR ALL USING (
-        bucket_id = 'raw-sources' AND auth.role() = 'authenticated'
+        bucket_id = 'raw-sources' 
+        AND auth.role() = 'authenticated'
+        AND (
+            (storage.foldername(name))[1] IN (
+                SELECT workspace_id::text FROM public.workspace_members WHERE user_id = auth.uid()::text
+            )
+            OR (storage.foldername(name))[1] IN (
+                SELECT id::text FROM public.workspaces WHERE id IN (
+                    SELECT workspace_id FROM public.workspace_members WHERE user_id = auth.uid()::text
+                )
+            )
+        )
     );
 
+DROP POLICY IF EXISTS storage_rendered_clips_access ON storage.objects;
 CREATE POLICY storage_rendered_clips_access ON storage.objects
     FOR ALL USING (
-        bucket_id = 'rendered-clips' AND auth.role() = 'authenticated'
+        bucket_id = 'rendered-clips' 
+        AND auth.role() = 'authenticated'
+        AND (
+            (storage.foldername(name))[1] IN (
+                SELECT workspace_id::text FROM public.workspace_members WHERE user_id = auth.uid()::text
+            )
+            OR (storage.foldername(name))[1] IN (
+                SELECT id::text FROM public.workspaces WHERE id IN (
+                    SELECT workspace_id FROM public.workspace_members WHERE user_id = auth.uid()::text
+                )
+            )
+        )
     );

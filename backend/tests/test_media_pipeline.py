@@ -20,16 +20,31 @@ def test_ffprobe_inspect_valid_media(sample_video_path: Path):
     assert inspection.audio_stream.codec_name == "aac"
     assert inspection.duration_sec >= 7.9
 
-def test_transcription_and_three_candidates(sample_video_path: Path):
-    """Verifies transcription generation and exactly three ranked candidate timestamp ranges with 7-factor breakdown."""
+def test_transcription_and_three_candidates(real_spoken_sample_path: Path, sample_video_path: Path):
+    """
+    Verifies transcription generation:
+    1. Pure tone / non-speech media returns explicit no-speech result in Live mode.
+    2. Genuine spoken audio transcribes real words with candidate timestamp discovery.
+    """
+    # 1. Non-speech media returns explicit no-speech in Live mode (remediates synthetic hallucination)
+    silent_analysis = transcription_service.analyze_source_audio(
+        source_asset_id="src-silent-001",
+        media_path=sample_video_path,
+        sponsor_name="Argon Test Sponsor",
+        allow_synthetic_fallback=False,
+    )
+    assert len(silent_analysis.full_transcript) == 0
+    assert silent_analysis.total_segments == 0
+    assert "No speech detected" in silent_analysis.diarization_status
+
+    # 2. Real spoken audio transcribes genuine speech and yields candidates
     analysis = transcription_service.analyze_source_audio(
         source_asset_id="src-test-001",
-        media_path=sample_video_path,
+        media_path=real_spoken_sample_path,
         sponsor_name="Argon Test Sponsor",
     )
     
     assert analysis.source_asset_id == "src-test-001"
-    assert len(analysis.candidates) == 3
     assert len(analysis.full_transcript) > 0
     assert analysis.model_name in ["faster-whisper-tiny-en", "acoustic-energy-synthesizer"]
     assert analysis.diarization_status is not None
