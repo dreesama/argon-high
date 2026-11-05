@@ -1,0 +1,10 @@
+{
+  "description": "A creator operations platform for evaluating clipping campaigns, producing and reviewing short-form videos, checking compliance, and tracking campaign earnings.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
